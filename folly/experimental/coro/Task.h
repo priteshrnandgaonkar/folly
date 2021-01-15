@@ -29,19 +29,20 @@
 #include <folly/Traits.h>
 #include <folly/Try.h>
 #include <folly/experimental/coro/CurrentExecutor.h>
-#include <folly/experimental/coro/Error.h>
 #include <folly/experimental/coro/Invoke.h>
+#include <folly/experimental/coro/Result.h>
 #include <folly/experimental/coro/Traits.h>
 #include <folly/experimental/coro/Utils.h>
 #include <folly/experimental/coro/ViaIfAsync.h>
+#include <folly/experimental/coro/WithAsyncStack.h>
 #include <folly/experimental/coro/WithCancellation.h>
-#include <folly/experimental/coro/detail/Helpers.h>
 #include <folly/experimental/coro/detail/InlineTask.h>
 #include <folly/experimental/coro/detail/Malloc.h>
 #include <folly/experimental/coro/detail/Traits.h>
 #include <folly/futures/Future.h>
 #include <folly/io/async/Request.h>
 #include <folly/lang/Assume.h>
+#include <folly/tracing/AsyncStack.h>
 
 namespace folly {
 namespace coro {
@@ -52,48 +53,24 @@ class Task;
 template <typename T = void>
 class TaskWithExecutor;
 
-template <typename T>
-class co_result final {
- public:
-  explicit co_result(Try<T>&& result) noexcept(
-      std::is_nothrow_move_constructible<T>::value)
-      : result_(std::move(result)) {}
-
-  const Try<T>& result() const {
-    return result_;
-  }
-
-  Try<T>& result() {
-    return result_;
-  }
-
- private:
-  Try<T> result_;
-};
-
-template <class T>
-co_result(Try<T>)->co_result<T>;
-
 namespace detail {
 
 class TaskPromiseBase {
   class FinalAwaiter {
    public:
-    bool await_ready() noexcept {
-      return false;
-    }
+    bool await_ready() noexcept { return false; }
 
     template <typename Promise>
-    auto await_suspend(
-        std::experimental::coroutine_handle<Promise> coro) noexcept {
+    FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES
+        std::experimental::coroutine_handle<>
+        await_suspend(
+            std::experimental::coroutine_handle<Promise> coro) noexcept {
       TaskPromiseBase& promise = coro.promise();
-      return symmetricTransferMaybeReschedule(
-          promise.continuation_, promise.executor_);
+      folly::popAsyncStackFrameCallee(promise.asyncFrame_);
+      return promise.continuation_;
     }
 
-    [[noreturn]] void await_resume() noexcept {
-      folly::assume_unreachable();
-    }
+    [[noreturn]] void await_resume() noexcept { folly::assume_unreachable(); }
   };
 
   friend class FinalAwaiter;
@@ -110,20 +87,16 @@ class TaskPromiseBase {
     ::folly_coro_async_free(ptr, size);
   }
 
-  std::experimental::suspend_always initial_suspend() noexcept {
-    return {};
-  }
+  std::experimental::suspend_always initial_suspend() noexcept { return {}; }
 
-  FinalAwaiter final_suspend() noexcept {
-    return {};
-  }
+  FinalAwaiter final_suspend() noexcept { return {}; }
 
   template <typename Awaitable>
   auto await_transform(Awaitable&& awaitable) {
-    return folly::coro::co_viaIfAsync(
+    return folly::coro::co_withAsyncStack(folly::coro::co_viaIfAsync(
         executor_.get_alias(),
         folly::coro::co_withCancellation(
-            cancelToken_, static_cast<Awaitable&&>(awaitable)));
+            cancelToken_, static_cast<Awaitable&&>(awaitable))));
   }
 
   auto await_transform(co_current_executor_t) noexcept {
@@ -141,6 +114,8 @@ class TaskPromiseBase {
     }
   }
 
+  folly::AsyncStackFrame& getAsyncFrame() noexcept { return asyncFrame_; }
+
  private:
   template <typename T>
   friend class folly::coro::TaskWithExecutor;
@@ -149,6 +124,7 @@ class TaskPromiseBase {
   friend class folly::coro::Task;
 
   std::experimental::coroutine_handle<> continuation_;
+  folly::AsyncStackFrame asyncFrame_;
   folly::Executor::KeepAlive<> executor_;
   folly::CancellationToken cancelToken_;
   bool hasCancelTokenOverride_ = false;
@@ -173,9 +149,7 @@ class TaskPromise : public TaskPromiseBase {
         exception_wrapper::from_exception_ptr(std::current_exception()));
   }
 
-  void return_value(T&& t) {
-    result_.emplace(static_cast<T&&>(t));
-  }
+  void return_value(T&& t) { result_.emplace(static_cast<T&&>(t)); }
 
   template <typename U>
   void return_value(U&& value) {
@@ -196,9 +170,7 @@ class TaskPromise : public TaskPromiseBase {
     }
   }
 
-  Try<StorageType>& result() {
-    return result_;
-  }
+  Try<StorageType>& result() { return result_; }
 
   auto yield_value(co_error ex) {
     result_.emplaceException(std::move(ex.exception()));
@@ -228,13 +200,9 @@ class TaskPromise<void> : public TaskPromiseBase {
         exception_wrapper::from_exception_ptr(std::current_exception()));
   }
 
-  void return_void() noexcept {
-    result_.emplace();
-  }
+  void return_void() noexcept { result_.emplace(); }
 
-  Try<void>& result() {
-    return result_;
-  }
+  Try<void>& result() { return result_; }
 
   auto yield_value(co_error ex) {
     result_.emplaceException(std::move(ex.exception()));
@@ -286,85 +254,117 @@ class FOLLY_NODISCARD TaskWithExecutor {
     return coro_.promise().executor_.get();
   }
 
-  void swap(TaskWithExecutor& t) noexcept {
-    std::swap(coro_, t.coro_);
-  }
+  void swap(TaskWithExecutor& t) noexcept { std::swap(coro_, t.coro_); }
 
   // Start execution of this task eagerly and return a folly::SemiFuture<T>
   // that will complete with the result.
-  auto start() && {
+  FOLLY_NOINLINE SemiFuture<lift_unit_t<StorageType>> start() && {
     Promise<lift_unit_t<StorageType>> p;
 
     auto sf = p.getSemiFuture();
 
-    std::move(*this).start(
+    std::move(*this).startImpl(
         [promise = std::move(p)](Try<StorageType>&& result) mutable {
           promise.setTry(std::move(result));
-        });
+        },
+        folly::CancellationToken{},
+        FOLLY_ASYNC_STACK_RETURN_ADDRESS());
 
     return sf;
   }
 
   // Start execution of this task eagerly and call the callback when complete.
   template <typename F>
-  void start(F&& tryCallback, folly::CancellationToken cancelToken = {}) && {
-    coro_.promise().setCancelToken(std::move(cancelToken));
-
-    [](TaskWithExecutor task,
-       std::decay_t<F> cb) -> detail::InlineTaskDetached {
-      try {
-        cb(co_await std::move(task).co_awaitTry());
-      } catch (const std::exception& e) {
-        cb(Try<StorageType>(exception_wrapper(std::current_exception(), e)));
-      } catch (...) {
-        cb(Try<StorageType>(exception_wrapper(std::current_exception())));
-      }
-    }(std::move(*this), std::forward<F>(tryCallback));
+  FOLLY_NOINLINE void start(
+      F&& tryCallback,
+      folly::CancellationToken cancelToken = {}) && {
+    std::move(*this).startImpl(
+        static_cast<F&&>(tryCallback),
+        std::move(cancelToken),
+        FOLLY_ASYNC_STACK_RETURN_ADDRESS());
   }
 
   // Start execution of this task eagerly, inline on the current thread.
   // Assumes that the current thread is already on the associated execution
   // context.
   template <typename F>
-  void startInlineUnsafe(
+  FOLLY_NOINLINE void startInlineUnsafe(
       F&& tryCallback,
       folly::CancellationToken cancelToken = {}) && {
-    coro_.promise().setCancelToken(std::move(cancelToken));
-
-    RequestContextScopeGuard contextScope{RequestContext::saveContext()};
-
-    [](TaskWithExecutor task,
-       std::decay_t<F> cb) -> detail::InlineTaskDetached {
-      try {
-        cb(co_await InlineAwaiter{std::exchange(task.coro_, {})});
-      } catch (const std::exception& e) {
-        cb(Try<StorageType>(exception_wrapper(std::current_exception(), e)));
-      } catch (...) {
-        cb(Try<StorageType>(exception_wrapper(std::current_exception())));
-      }
-    }(std::move(*this), std::forward<F>(tryCallback));
+    std::move(*this).startInlineImpl(
+        static_cast<F&&>(tryCallback),
+        std::move(cancelToken),
+        FOLLY_ASYNC_STACK_RETURN_ADDRESS());
   }
 
   // Start execution of this task eagerly inline on the current thread,
   // assuming the current thread is already on the associated executor,
   // and return a folly::SemiFuture<T> that will complete with the result.
-  auto startInlineUnsafe() && {
+  FOLLY_NOINLINE SemiFuture<lift_unit_t<StorageType>> startInlineUnsafe() && {
     Promise<lift_unit_t<StorageType>> p;
 
     auto sf = p.getSemiFuture();
 
-    std::move(*this).startInlineUnsafe(
+    std::move(*this).startInlineImpl(
         [promise = std::move(p)](Try<StorageType>&& result) mutable {
           promise.setTry(std::move(result));
-        });
+        },
+        folly::CancellationToken{},
+        FOLLY_ASYNC_STACK_RETURN_ADDRESS());
 
     return sf;
   }
 
-  template <typename ResultCreator>
+ private:
+  template <typename F>
+  void startImpl(
+      F&& tryCallback,
+      folly::CancellationToken cancelToken,
+      void* returnAddress) && {
+    coro_.promise().setCancelToken(std::move(cancelToken));
+    startImpl(std::move(*this), static_cast<F&&>(tryCallback))
+        .start(returnAddress);
+  }
+
+  template <typename F>
+  void startInlineImpl(
+      F&& tryCallback,
+      folly::CancellationToken cancelToken,
+      void* returnAddress) && {
+    coro_.promise().setCancelToken(std::move(cancelToken));
+    RequestContextScopeGuard contextScope{RequestContext::saveContext()};
+    startInlineImpl(std::move(*this), static_cast<F&&>(tryCallback))
+        .start(returnAddress);
+  }
+
+  template <typename F>
+  detail::InlineTaskDetached startImpl(TaskWithExecutor task, F cb) {
+    try {
+      cb(co_await folly::coro::co_awaitTry(std::move(task)));
+    } catch (const std::exception& e) {
+      cb(Try<StorageType>(exception_wrapper(std::current_exception(), e)));
+    } catch (...) {
+      cb(Try<StorageType>(exception_wrapper(std::current_exception())));
+    }
+  }
+
+  template <typename F>
+  detail::InlineTaskDetached startInlineImpl(TaskWithExecutor task, F cb) {
+    try {
+      cb(co_await InlineTryAwaitable{std::exchange(task.coro_, {})});
+    } catch (const std::exception& e) {
+      cb(Try<StorageType>(exception_wrapper(std::current_exception(), e)));
+    } catch (...) {
+      cb(Try<StorageType>(exception_wrapper(std::current_exception())));
+    }
+  }
+
+ public:
   class Awaiter {
    public:
     explicit Awaiter(handle_t coro) noexcept : coro_(coro) {}
+
+    Awaiter(Awaiter&& other) noexcept : coro_(std::exchange(other.coro_, {})) {}
 
     ~Awaiter() {
       if (coro_) {
@@ -372,12 +372,12 @@ class FOLLY_NODISCARD TaskWithExecutor {
       }
     }
 
-    bool await_ready() const {
-      return false;
-    }
+    bool await_ready() const { return false; }
 
-    FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES void await_suspend(
-        std::experimental::coroutine_handle<> continuation) noexcept {
+    template <typename Promise>
+    FOLLY_NOINLINE void await_suspend(
+        std::experimental::coroutine_handle<Promise> continuation) noexcept {
+      DCHECK(coro_);
       auto& promise = coro_.promise();
       DCHECK(!promise.continuation_);
       DCHECK(promise.executor_);
@@ -391,55 +391,32 @@ class FOLLY_NODISCARD TaskWithExecutor {
           << "If you need to run a task inline in a unit-test, you should use "
           << "coro::blockingWait instead.";
 
+      auto& calleeFrame = promise.getAsyncFrame();
+      calleeFrame.setReturnAddress();
+
+      if constexpr (detail::promiseHasAsyncFrame_v<Promise>) {
+        auto& callerFrame = continuation.promise().getAsyncFrame();
+        calleeFrame.setParentFrame(callerFrame);
+        folly::deactivateAsyncStackFrame(callerFrame);
+      }
+
       promise.continuation_ = continuation;
       promise.executor_->add(
           [coro = coro_, ctx = RequestContext::saveContext()]() mutable {
             RequestContextScopeGuard contextScope{std::move(ctx)};
-            coro.resume();
+            folly::resumeCoroutineWithNewAsyncStackRoot(coro);
           });
     }
 
-    decltype(auto) await_resume() {
+    T await_resume() {
+      DCHECK(coro_);
       // Eagerly destroy the coroutine-frame once we have retrieved the result.
-      SCOPE_EXIT {
-        std::exchange(coro_, {}).destroy();
-      };
-      ResultCreator resultCreator;
-      return resultCreator(std::move(coro_.promise().result()));
+      SCOPE_EXIT { std::exchange(coro_, {}).destroy(); };
+      return std::move(coro_.promise().result()).value();
     }
 
-   private:
-    handle_t coro_;
-  };
-
-  class InlineAwaiter {
-   public:
-    InlineAwaiter(handle_t coro) noexcept : coro_(coro) {}
-
-    ~InlineAwaiter() {
-      if (coro_) {
-        coro_.destroy();
-      }
-    }
-
-    bool await_ready() {
-      return false;
-    }
-
-    auto await_suspend(std::experimental::coroutine_handle<> continuation) {
-      auto& promise = coro_.promise();
-      DCHECK(!promise.continuation_);
-      DCHECK(promise.executor_);
-
-      promise.continuation_ = continuation;
-      return coro_;
-    }
-
-    folly::Try<StorageType> await_resume() {
-      // Eagerly destroy the coroutine-frame once we have retrieved the result.
-      SCOPE_EXIT {
-        std::exchange(coro_, {}).destroy();
-      };
+    folly::Try<StorageType> await_resume_try() {
+      SCOPE_EXIT { std::exchange(coro_, {}).destroy(); };
       return std::move(coro_.promise().result());
     }
 
@@ -447,30 +424,78 @@ class FOLLY_NODISCARD TaskWithExecutor {
     handle_t coro_;
   };
 
-  struct ValueCreator {
-    T operator()(Try<StorageType>&& t) const {
-      return std::move(t).value();
+  class InlineTryAwaitable {
+   public:
+    InlineTryAwaitable(handle_t coro) noexcept : coro_(coro) {}
+
+    InlineTryAwaitable(InlineTryAwaitable&& other) noexcept
+        : coro_(std::exchange(other.coro_, {})) {}
+
+    ~InlineTryAwaitable() {
+      if (coro_) {
+        coro_.destroy();
+      }
     }
+
+    bool await_ready() { return false; }
+
+    template <typename Promise>
+    FOLLY_NOINLINE std::experimental::coroutine_handle<> await_suspend(
+        std::experimental::coroutine_handle<Promise> continuation) {
+      DCHECK(coro_);
+      auto& promise = coro_.promise();
+      DCHECK(!promise.continuation_);
+      DCHECK(promise.executor_);
+
+      promise.continuation_ = continuation;
+
+      auto& calleeFrame = promise.getAsyncFrame();
+      calleeFrame.setReturnAddress();
+
+      // This awaitable is only ever awaited from a DetachedInlineTask
+      // which is an async-stack-aware coroutine.
+      //
+      // Assume it has a .getAsyncFrame() and that this frame is currently
+      // active.
+      auto& callerFrame = continuation.promise().getAsyncFrame();
+      folly::pushAsyncStackFrameCallerCallee(callerFrame, calleeFrame);
+      return coro_;
+    }
+
+    folly::Try<StorageType> await_resume() {
+      DCHECK(coro_);
+      // Eagerly destroy the coroutine-frame once we have retrieved the result.
+      SCOPE_EXIT { std::exchange(coro_, {}).destroy(); };
+      return std::move(coro_.promise().result());
+    }
+
+   private:
+    friend InlineTryAwaitable tag_invoke(
+        cpo_t<co_withAsyncStack>,
+        InlineTryAwaitable&& awaitable) noexcept {
+      return std::move(awaitable);
+    }
+
+    handle_t coro_;
   };
 
-  struct TryCreator {
-    Try<StorageType> operator()(Try<StorageType>&& t) const {
-      return std::move(t);
-    }
-  };
-
-  auto operator co_await() && noexcept {
-    return Awaiter<ValueCreator>{std::exchange(coro_, {})};
-  }
-
-  auto co_awaitTry() && noexcept {
-    return Awaiter<TryCreator>{std::exchange(coro_, {})};
+ public:
+  Awaiter operator co_await() && noexcept {
+    DCHECK(coro_);
+    return Awaiter{std::exchange(coro_, {})};
   }
 
   friend TaskWithExecutor co_withCancellation(
       const folly::CancellationToken& cancelToken,
       TaskWithExecutor&& task) noexcept {
+    DCHECK(task.coro_);
     task.coro_.promise().setCancelToken(cancelToken);
+    return std::move(task);
+  }
+
+  friend TaskWithExecutor tag_invoke(
+      cpo_t<co_withAsyncStack>,
+      TaskWithExecutor&& task) noexcept {
     return std::move(task);
   }
 
@@ -516,6 +541,7 @@ class FOLLY_NODISCARD Task {
   using handle_t = std::experimental::coroutine_handle<promise_type>;
 
   void setExecutor(folly::Executor::KeepAlive<>&& e) noexcept {
+    DCHECK(coro_);
     coro_.promise().executor_ = std::move(e);
   }
 
@@ -535,9 +561,7 @@ class FOLLY_NODISCARD Task {
     return *this;
   }
 
-  void swap(Task& t) noexcept {
-    std::swap(coro_, t.coro_);
-  }
+  void swap(Task& t) noexcept { std::swap(coro_, t.coro_); }
 
   /// Specify the executor that this task should execute on.
   ///
@@ -546,20 +570,35 @@ class FOLLY_NODISCARD Task {
   FOLLY_NODISCARD
   TaskWithExecutor<T> scheduleOn(Executor::KeepAlive<> executor) && noexcept {
     setExecutor(std::move(executor));
+    DCHECK(coro_);
     return TaskWithExecutor<T>{std::exchange(coro_, {})};
   }
 
+  FOLLY_NOINLINE
   SemiFuture<folly::lift_unit_t<StorageType>> semi() && {
     return makeSemiFuture().deferExTry(
-        [task = std::move(*this)](
+        [task = std::move(*this),
+         returnAddress = FOLLY_ASYNC_STACK_RETURN_ADDRESS()](
             const Executor::KeepAlive<>& executor, Try<Unit>&&) mutable {
-          return std::move(task).scheduleOn(executor.get()).start();
+          Promise<lift_unit_t<StorageType>> p;
+
+          auto sf = p.getSemiFuture();
+
+          std::move(task).scheduleOn(executor).startInlineImpl(
+              [promise = std::move(p)](Try<StorageType>&& result) mutable {
+                promise.setTry(std::move(result));
+              },
+              folly::CancellationToken{},
+              returnAddress);
+
+          return sf;
         });
   }
 
   friend auto co_viaIfAsync(
       Executor::KeepAlive<> executor,
       Task<T>&& t) noexcept {
+    DCHECK(t.coro_);
     // Child task inherits the awaiting task's executor
     t.setExecutor(std::move(executor));
     return Awaiter{std::exchange(t.coro_, {})};
@@ -568,6 +607,7 @@ class FOLLY_NODISCARD Task {
   friend Task co_withCancellation(
       const folly::CancellationToken& cancelToken,
       Task&& task) noexcept {
+    DCHECK(task.coro_);
     task.coro_.promise().setCancelToken(cancelToken);
     return std::move(task);
   }
@@ -595,28 +635,50 @@ class FOLLY_NODISCARD Task {
       }
     }
 
-    bool await_ready() noexcept {
-      return false;
-    }
+    bool await_ready() noexcept { return false; }
 
-    auto await_suspend(
-        std::experimental::coroutine_handle<> continuation) noexcept {
-      coro_.promise().continuation_ = continuation;
-      return symmetricTransferMaybeReschedule(coro_, coro_.promise().executor_);
+    template <typename Promise>
+    FOLLY_NOINLINE auto await_suspend(
+        std::experimental::coroutine_handle<Promise> continuation) noexcept {
+      DCHECK(coro_);
+      auto& promise = coro_.promise();
+
+      promise.continuation_ = continuation;
+
+      auto& calleeFrame = promise.getAsyncFrame();
+      calleeFrame.setReturnAddress();
+
+      if constexpr (detail::promiseHasAsyncFrame_v<Promise>) {
+        auto& callerFrame = continuation.promise().getAsyncFrame();
+        folly::pushAsyncStackFrameCallerCallee(callerFrame, calleeFrame);
+        return coro_;
+      } else {
+        folly::resumeCoroutineWithNewAsyncStackRoot(coro_);
+        return;
+      }
     }
 
     T await_resume() {
-      return await_resume_try().value();
+      DCHECK(coro_);
+      SCOPE_EXIT { std::exchange(coro_, {}).destroy(); };
+      return std::move(coro_.promise().result()).value();
     }
 
-    auto await_resume_try() {
-      SCOPE_EXIT {
-        std::exchange(coro_, {}).destroy();
-      };
+    folly::Try<StorageType> await_resume_try() {
+      DCHECK(coro_);
+      SCOPE_EXIT { std::exchange(coro_, {}).destroy(); };
       return std::move(coro_.promise().result());
     }
 
    private:
+    // This overload needed as Awaiter is returned from co_viaIfAsync() which is
+    // then passed into co_withAsyncStack().
+    friend Awaiter tag_invoke(
+        cpo_t<co_withAsyncStack>,
+        Awaiter&& awaiter) noexcept {
+      return std::move(awaiter);
+    }
+
     handle_t coro_;
   };
 

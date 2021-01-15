@@ -75,7 +75,7 @@ class AsyncSSLSocketConnector;
  */
 class AsyncSSLSocket : public AsyncSocket {
  public:
-  typedef std::unique_ptr<AsyncSSLSocket, Destructor> UniquePtr;
+  typedef std::unique_ptr<AsyncSSLSocket, ReleasableDestructor> UniquePtr;
   using X509_deleter = folly::static_function_deleter<X509, &X509_free>;
 
   class HandshakeCB {
@@ -143,9 +143,7 @@ class AsyncSSLSocket : public AsyncSocket {
       return scheduleTimeout(std::chrono::milliseconds{timeoutMs});
     }
 
-    TimeoutManager::timeout_type getTimeout() {
-      return timeout_;
-    }
+    TimeoutManager::timeout_type getTimeout() { return timeout_; }
 
     void timeoutExpired() noexcept override {
       sslSocket_->timeoutExpired(timeout_);
@@ -292,9 +290,8 @@ class AsyncSSLSocket : public AsyncSocket {
       NetworkSocket fd,
       bool server = true,
       bool deferSecurityNegotiation = false) {
-    return std::shared_ptr<AsyncSSLSocket>(
-        new AsyncSSLSocket(ctx, evb, fd, server, deferSecurityNegotiation),
-        Destructor());
+    return std::shared_ptr<AsyncSSLSocket>(AsyncSSLSocket::UniquePtr(
+        new AsyncSSLSocket(ctx, evb, fd, server, deferSecurityNegotiation)));
   }
 
   /**
@@ -304,8 +301,8 @@ class AsyncSSLSocket : public AsyncSocket {
       const std::shared_ptr<folly::SSLContext>& ctx,
       EventBase* evb,
       bool deferSecurityNegotiation = false) {
-    return std::shared_ptr<AsyncSSLSocket>(
-        new AsyncSSLSocket(ctx, evb, deferSecurityNegotiation), Destructor());
+    return std::shared_ptr<AsyncSSLSocket>(AsyncSSLSocket::UniquePtr(
+        new AsyncSSLSocket(ctx, evb, deferSecurityNegotiation)));
   }
 
 #if FOLLY_OPENSSL_HAS_SNI
@@ -346,9 +343,8 @@ class AsyncSSLSocket : public AsyncSocket {
       EventBase* evb,
       const std::string& serverName,
       bool deferSecurityNegotiation = false) {
-    return std::shared_ptr<AsyncSSLSocket>(
-        new AsyncSSLSocket(ctx, evb, serverName, deferSecurityNegotiation),
-        Destructor());
+    return std::shared_ptr<AsyncSSLSocket>(AsyncSSLSocket::UniquePtr(
+        new AsyncSSLSocket(ctx, evb, serverName, deferSecurityNegotiation)));
   }
 #endif // FOLLY_OPENSSL_HAS_SNI
 
@@ -499,22 +495,16 @@ class AsyncSSLSocket : public AsyncSocket {
     STATE_ERROR
   };
 
-  SSLStateEnum getSSLState() const {
-    return sslState_;
-  }
+  SSLStateEnum getSSLState() const { return sslState_; }
 
   /**
-   * Get a handle to the negotiated SSL session.  This increments the session
-   * refcount and must be deallocated by the caller.
+   * Retrieve the SSL session associated with this established connection.
+   *
+   * The SSL Session object is a copyable, opaque token that can be set on other
+   * unconnected AsyncSSLSockets. If AsyncSSLSocket::connect() is called with a
+   * previous session set, TLS resumption will be attempted.
    */
-  SSL_SESSION* getSSLSession();
-
-  /**
-   * Currently unsupported. Eventually intended to replace getSSLSession()
-   * once TLS 1.3 is enabled by default.
-   * Get an abstracted SSL Session.
-   */
-  std::shared_ptr<ssl::SSLSession> getSSLSessionV2();
+  std::shared_ptr<ssl::SSLSession> getSSLSession();
 
   /**
    * Get a handle to the SSL struct.
@@ -522,25 +512,13 @@ class AsyncSSLSocket : public AsyncSocket {
   const SSL* getSSL() const;
 
   /**
-   * DEPRECATED. Will eventually be removed. Please use setSSLSessionV2.
-   *
-   * Set the SSL session to be used during sslConn.  AsyncSSLSocket will
-   * hold a reference to the session until it is destroyed or released by the
-   * underlying SSL structure.
-   *
-   * @param takeOwnership if true, AsyncSSLSocket will assume the caller's
-   *                      reference count to session.
+   * Sets the SSL session that will be attempted for TLS resumption.
    */
-  void setSSLSession(SSL_SESSION* session, bool takeOwnership = false);
-
-  /**
-   * Set the SSL session to be used during sslConn.
-   */
-  void setSSLSessionV2(std::shared_ptr<ssl::SSLSession> session);
+  void setSSLSession(std::shared_ptr<ssl::SSLSession> session);
 
   /**
    * Note: This function exists for compatibility reasons. It is strongly
-   * recommended to use setSSLSessionV2 instead. After setRawSSLSession is
+   * recommended to use setSSLSession instead. After setRawSSLSession is
    * called, subsequent calls to getSSLSession on the socket will return null.
    *
    * Set the SSL session to be used during sslConn.
@@ -595,13 +573,9 @@ class AsyncSSLSocket : public AsyncSocket {
   /**
    * true if the session was resumed using session ID
    */
-  bool sessionIDResumed() const {
-    return sessionIDResumed_;
-  }
+  bool sessionIDResumed() const { return sessionIDResumed_; }
 
-  void setSessionIDResumed(bool resumed) {
-    sessionIDResumed_ = resumed;
-  }
+  void setSessionIDResumed(bool resumed) { sessionIDResumed_ = resumed; }
 
   /**
    * Get the negociated cipher name for this SSL connection.
@@ -805,13 +779,9 @@ class AsyncSSLSocket : public AsyncSocket {
     return handshakeEndTime_ - handshakeStartTime_;
   }
 
-  void setMinWriteSize(size_t minWriteSize) {
-    minWriteSize_ = minWriteSize;
-  }
+  void setMinWriteSize(size_t minWriteSize) { minWriteSize_ = minWriteSize; }
 
-  size_t getMinWriteSize() const {
-    return minWriteSize_;
-  }
+  size_t getMinWriteSize() const { return minWriteSize_; }
 
   const AsyncTransportCertificate* getPeerCertificate() const override;
   const AsyncTransportCertificate* getSelfCertificate() const override;
@@ -823,25 +793,17 @@ class AsyncSSLSocket : public AsyncSocket {
    * through getLocalAddress()/getPeerAddress() methods even after the socket is
    * closed.
    */
-  void forceCacheAddrOnFailure(bool force) {
-    cacheAddrOnFailure_ = force;
-  }
+  void forceCacheAddrOnFailure(bool force) { cacheAddrOnFailure_ = force; }
 
-  const std::string& getSessionKey() const {
-    return sessionKey_;
-  }
+  const std::string& getSessionKey() const { return sessionKey_; }
 
   void setSessionKey(std::string sessionKey) {
     sessionKey_ = std::move(sessionKey);
   }
 
-  void setCertCacheHit(bool hit) {
-    certCacheHit_ = hit;
-  }
+  void setCertCacheHit(bool hit) { certCacheHit_ = hit; }
 
-  bool getCertCacheHit() const {
-    return certCacheHit_;
-  }
+  bool getCertCacheHit() const { return certCacheHit_; }
 
   bool sessionResumptionAttempted() const {
     return sessionResumptionAttempted_;
@@ -863,9 +825,7 @@ class AsyncSSLSocket : public AsyncSocket {
   }
 
   // zero copy is not supported by openssl.
-  bool setZeroCopy(bool /*enable*/) override {
-    return false;
-  }
+  bool setZeroCopy(bool /*enable*/) override { return false; }
 
  private:
   /**

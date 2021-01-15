@@ -16,6 +16,10 @@
 
 #pragma once
 
+#include <atomic>
+
+#include <glog/logging.h>
+
 #include <folly/Likely.h>
 #include <folly/detail/Futex.h>
 #include <folly/detail/MemoryIdler.h>
@@ -23,10 +27,6 @@
 #include <folly/synchronization/AtomicUtil.h>
 #include <folly/synchronization/WaitOptions.h>
 #include <folly/synchronization/detail/Spin.h>
-
-#include <glog/logging.h>
-
-#include <atomic>
 
 namespace folly {
 
@@ -128,9 +128,7 @@ class SaturatingSemaphore {
   };
 
  public:
-  FOLLY_ALWAYS_INLINE static constexpr WaitOptions wait_options() {
-    return {};
-  }
+  FOLLY_ALWAYS_INLINE static constexpr WaitOptions wait_options() { return {}; }
 
   /** constructor */
   constexpr SaturatingSemaphore() noexcept : state_(NOTREADY) {}
@@ -144,9 +142,7 @@ class SaturatingSemaphore {
   }
 
   /** reset */
-  void reset() noexcept {
-    state_.store(NOTREADY, std::memory_order_relaxed);
-  }
+  void reset() noexcept { state_.store(NOTREADY, std::memory_order_relaxed); }
 
   /** post */
   FOLLY_ALWAYS_INLINE void post() noexcept {
@@ -164,9 +160,7 @@ class SaturatingSemaphore {
   }
 
   /** try_wait */
-  FOLLY_ALWAYS_INLINE bool try_wait() noexcept {
-    return ready();
-  }
+  FOLLY_ALWAYS_INLINE bool try_wait() noexcept { return ready(); }
 
   /** try_wait_until */
   template <typename Clock, typename Duration>

@@ -16,14 +16,15 @@
 
 #pragma once
 
-#include <folly/Synchronized.h>
-#include <folly/container/F14Map.h>
-#include <folly/synchronization/Hazptr.h>
-
 #include <atomic>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
+
+#include <folly/Synchronized.h>
+#include <folly/container/F14Map.h>
+#include <folly/synchronization/Hazptr.h>
 
 namespace folly {
 
@@ -99,9 +100,7 @@ class RequestData {
   // and onUnset() with that of onClear().
   virtual void onClear() {}
   // For debugging
-  int refCount() {
-    return keepAliveCounter_.load(std::memory_order_acquire);
-  }
+  int refCount() { return keepAliveCounter_.load(std::memory_order_acquire); }
 
  private:
   // For efficiency, RequestContext provides a raw ptr interface.
@@ -128,6 +127,8 @@ class RequestData {
   std::atomic<int> keepAliveCounter_{0};
 };
 
+using RequestDataItem = std::pair<RequestToken, std::unique_ptr<RequestData>>;
+
 // If you do not call create() to create a unique request context,
 // this default request context will always be returned, and is never
 // copied between threads.
@@ -147,16 +148,12 @@ class RequestContext {
   // Create a unique request context for this request.
   // It will be passed between queues / threads (where implemented),
   // so it should be valid for the lifetime of the request.
-  static void create() {
-    setContext(std::make_shared<RequestContext>());
-  }
+  static void create() { setContext(std::make_shared<RequestContext>()); }
 
   // Get the current context.
   static RequestContext* get();
 
-  intptr_t getRootId() const {
-    return rootId_;
-  }
+  intptr_t getRootId() const { return rootId_; }
 
   struct RootIdInfo {
     intptr_t id;
@@ -390,9 +387,7 @@ class RequestContextScopeGuard {
   explicit RequestContextScopeGuard(std::shared_ptr<RequestContext>&& ctx)
       : prev_(RequestContext::setContext(std::move(ctx))) {}
 
-  ~RequestContextScopeGuard() {
-    RequestContext::setContext(std::move(prev_));
-  }
+  ~RequestContextScopeGuard() { RequestContext::setContext(std::move(prev_)); }
 };
 
 /**
@@ -423,6 +418,29 @@ struct ShallowCopyRequestContextScopeGuard {
       std::unique_ptr<RequestData> data)
       : ShallowCopyRequestContextScopeGuard() {
     RequestContext::get()->overwriteContextData(val, std::move(data), true);
+  }
+
+  /**
+   * Shallow copy then overwrite multiple RequestData instances
+   *
+   * Helper constructor which is more efficient than using multiple scope guards
+   * Accepts iterators to a container of <string/RequestToken, RequestData
+   * pointer> pairs
+   */
+  template <typename... TItems>
+  explicit ShallowCopyRequestContextScopeGuard(
+      RequestDataItem&& first,
+      TItems&&... rest)
+      : ShallowCopyRequestContextScopeGuard() {
+    auto rc = RequestContext::get();
+    auto overwriteContextData = [&rc](RequestDataItem&& item) {
+      rc->overwriteContextData(item.first, std::move(item.second), true);
+    };
+
+    overwriteContextData(std::move(first));
+
+    using _ = int[];
+    void(_{0, (void(overwriteContextData(std::forward<TItems>(rest))), 0)...});
   }
 
   ~ShallowCopyRequestContextScopeGuard() {

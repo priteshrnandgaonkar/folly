@@ -16,14 +16,13 @@
 
 #pragma once
 
+#include <memory>
+#include <utility>
+
 #include <folly/io/async/EventBaseBackendBase.h>
 #include <folly/io/async/Request.h>
 #include <folly/io/async/TimeoutManager.h>
-
 #include <folly/portability/Event.h>
-
-#include <memory>
-#include <utility>
 
 namespace folly {
 
@@ -151,16 +150,12 @@ class AsyncTimeout {
   void detachTimeoutManager();
   void detachEventBase();
 
-  const TimeoutManager* getTimeoutManager() {
-    return timeoutManager_;
-  }
+  const TimeoutManager* getTimeoutManager() { return timeoutManager_; }
 
   /**
    * Returns the internal handle to the event
    */
-  EventBaseBackendBase::Event* getEvent() {
-    return &event_;
-  }
+  EventBaseBackendBase::Event* getEvent() { return &event_; }
 
   /**
    * Convenience function that wraps a function object as

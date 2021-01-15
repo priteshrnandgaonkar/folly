@@ -15,6 +15,16 @@
  */
 
 #include <folly/MPMCQueue.h>
+
+#include <functional>
+#include <memory>
+#include <string>
+#include <thread>
+#include <utility>
+
+#include <boost/intrusive_ptr.hpp>
+#include <boost/thread/barrier.hpp>
+
 #include <folly/Format.h>
 #include <folly/Memory.h>
 #include <folly/portability/GTest.h>
@@ -23,13 +33,6 @@
 #include <folly/portability/Unistd.h>
 #include <folly/stop_watch.h>
 #include <folly/test/DeterministicSchedule.h>
-
-#include <boost/intrusive_ptr.hpp>
-#include <boost/thread/barrier.hpp>
-#include <functional>
-#include <memory>
-#include <thread>
-#include <utility>
 
 FOLLY_ASSUME_FBVECTOR_COMPATIBLE_1(boost::intrusive_ptr)
 
@@ -129,13 +132,9 @@ struct RefCounted {
 
   mutable std::atomic<int> rc;
 
-  RefCounted() : rc(0) {
-    ++active_instances;
-  }
+  RefCounted() : rc(0) { ++active_instances; }
 
-  ~RefCounted() {
-    --active_instances;
-  }
+  ~RefCounted() { --active_instances; }
 };
 FOLLY_TLS int RefCounted::active_instances;
 
@@ -377,29 +376,19 @@ struct BlockingWriteCaller : public WriteMethodCaller<Q> {
     q.blockingWrite(i);
     return true;
   }
-  string methodName() override {
-    return "blockingWrite";
-  }
+  string methodName() override { return "blockingWrite"; }
 };
 
 template <typename Q>
 struct WriteIfNotFullCaller : public WriteMethodCaller<Q> {
-  bool callWrite(Q& q, int i) override {
-    return q.writeIfNotFull(i);
-  }
-  string methodName() override {
-    return "writeIfNotFull";
-  }
+  bool callWrite(Q& q, int i) override { return q.writeIfNotFull(i); }
+  string methodName() override { return "writeIfNotFull"; }
 };
 
 template <typename Q>
 struct WriteCaller : public WriteMethodCaller<Q> {
-  bool callWrite(Q& q, int i) override {
-    return q.write(i);
-  }
-  string methodName() override {
-    return "write";
-  }
+  bool callWrite(Q& q, int i) override { return q.write(i); }
+  string methodName() override { return "write"; }
 };
 
 template <
@@ -679,7 +668,7 @@ template <bool Dynamic = false>
 void runMtProdConsEmulatedFutex() {
   using QueueType = MPMCQueue<int, EmulatedFutexAtomic, Dynamic>;
 
-  int n = 100000;
+  const int n = 100000 / (folly::kIsSanitizeThread ? 10 : 1);
   vector<unique_ptr<WriteMethodCaller<QueueType>>> callers;
   callers.emplace_back(std::make_unique<BlockingWriteCaller<QueueType>>());
   callers.emplace_back(std::make_unique<WriteIfNotFullCaller<QueueType>>());
@@ -934,9 +923,7 @@ struct Lifecycle {
 
   bool constructed;
 
-  Lifecycle() noexcept : constructed(true) {
-    ++lc_counts[DEFAULT_CONSTRUCTOR];
-  }
+  Lifecycle() noexcept : constructed(true) { ++lc_counts[DEFAULT_CONSTRUCTOR]; }
 
   explicit Lifecycle(int /* n */, char const* /* s */) noexcept
       : constructed(true) {

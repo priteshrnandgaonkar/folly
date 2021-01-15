@@ -16,9 +16,9 @@
 
 #include <folly/synchronization/detail/InlineFunctionRef.h>
 
-#include <folly/portability/GTest.h>
-
 #include <cstring>
+
+#include <folly/portability/GTest.h>
 
 namespace folly {
 namespace detail {
@@ -193,12 +193,8 @@ namespace {
 template <typename Data>
 class ConstQualifiedFunctor {
  public:
-  int operator()() {
-    return 0;
-  }
-  int operator()() const {
-    return 1;
-  }
+  int operator()() { return 0; }
+  int operator()() const { return 1; }
 
   Data data_;
 };

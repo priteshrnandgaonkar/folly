@@ -603,9 +603,7 @@ class alignas(T) Replaceable
     return launder(reinterpret_cast<T const*>(storage_));
   }
 
-  constexpr T* operator->() {
-    return launder(reinterpret_cast<T*>(storage_));
-  }
+  constexpr T* operator->() { return launder(reinterpret_cast<T*>(storage_)); }
 
   constexpr const T& operator*() const& {
     return *launder(reinterpret_cast<T const*>(storage_));
@@ -634,6 +632,6 @@ class alignas(T) Replaceable
 
 #if __cpp_deduction_guides >= 201703
 template <class T>
-Replaceable(T)->Replaceable<T>;
+Replaceable(T) -> Replaceable<T>;
 #endif
 } // namespace folly

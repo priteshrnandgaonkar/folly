@@ -15,6 +15,7 @@
  */
 
 #include <folly/logging/Logger.h>
+
 #include <fmt/format.h>
 #include <folly/logging/LogCategory.h>
 #include <folly/logging/LogHandler.h>
@@ -150,9 +151,7 @@ class FormattableButNoToString {
 namespace fmt {
 template <>
 struct formatter<ToStringFailure> : formatter<std::string> {
-  auto format(ToStringFailure, format_context& ctx) {
-    return ctx.out();
-  }
+  auto format(ToStringFailure, format_context& ctx) { return ctx.out(); }
 };
 
 template <>

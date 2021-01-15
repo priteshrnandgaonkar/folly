@@ -19,6 +19,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
+
 #include <atomic>
 #include <thread>
 
@@ -57,9 +58,7 @@ namespace folly {
 template <bool MayBlock = true, template <typename> class Atom = std::atomic>
 class Baton {
  public:
-  FOLLY_ALWAYS_INLINE static constexpr WaitOptions wait_options() {
-    return {};
-  }
+  FOLLY_ALWAYS_INLINE static constexpr WaitOptions wait_options() { return {}; }
 
   constexpr Baton() noexcept : state_(INIT) {}
 
@@ -189,9 +188,7 @@ class Baton {
   ///   call wait, try_wait or timed_wait on the same baton without resetting
   ///
   /// @return       true if baton has been posted, false othewise
-  FOLLY_ALWAYS_INLINE bool try_wait() const noexcept {
-    return ready();
-  }
+  FOLLY_ALWAYS_INLINE bool try_wait() const noexcept { return ready(); }
 
   /// Similar to wait, but with a timeout. The thread is unblocked if the
   /// timeout expires.

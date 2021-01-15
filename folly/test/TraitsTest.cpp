@@ -224,15 +224,11 @@ void testIsRelocatable(Args&&... args) {
   char vcpy[sizeof(T)];
 
   T* src = new (vsrc) T(std::forward<Args>(args)...);
-  SCOPE_EXIT {
-    src->~T();
-  };
+  SCOPE_EXIT { src->~T(); };
   std::memcpy(vcpy, vsrc, sizeof(T));
   T deep(*src);
   T* dst = new (vdst) T(std::move(*src));
-  SCOPE_EXIT {
-    dst->~T();
-  };
+  SCOPE_EXIT { dst->~T(); };
 
   EXPECT_EQ(deep, *dst);
 #pragma GCC diagnostic push
@@ -259,9 +255,7 @@ struct inspects_tag {
   std::false_type is_char(tag_t<T>) const {
     return {};
   }
-  std::true_type is_char(tag_t<char>) const {
-    return {};
-  }
+  std::true_type is_char(tag_t<char>) const { return {}; }
 };
 
 TEST(Traits, tag) {
@@ -469,16 +463,11 @@ TEST(Traits, is_constexpr_default_constructible) {
   EXPECT_TRUE(is_constexpr_default_constructible_v<Empty>);
   EXPECT_TRUE(is_constexpr_default_constructible<Empty>{});
 
-  // under clang 10, crash: https://bugs.llvm.org/show_bug.cgi?id=47620
-  // and, with assertions disabled, expectation failures showing compiler
-  // deviation from the language spec
-  if (kClangVerMajor != (kIsApple ? 12 : 10)) {
-    struct NonTrivialDtor {
-      ~NonTrivialDtor() {}
-    };
-    EXPECT_FALSE(is_constexpr_default_constructible_v<NonTrivialDtor>);
-    EXPECT_FALSE(is_constexpr_default_constructible<NonTrivialDtor>{});
-  }
+  struct NonTrivialDtor {
+    FOLLY_MAYBE_UNUSED ~NonTrivialDtor() {}
+  };
+  EXPECT_FALSE(is_constexpr_default_constructible_v<NonTrivialDtor>);
+  EXPECT_FALSE(is_constexpr_default_constructible<NonTrivialDtor>{});
 
   struct ConstexprCtor {
     int x, y;

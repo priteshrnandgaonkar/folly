@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
+#include <folly/futures/detail/Core.h>
+
 #include <new>
 
-#include <folly/futures/detail/Core.h>
 #include <folly/lang/Assume.h>
 
 namespace folly {
@@ -334,9 +335,7 @@ class CoreBase::CoreAndCallbackReference {
  public:
   explicit CoreAndCallbackReference(CoreBase* core) noexcept : core_(core) {}
 
-  ~CoreAndCallbackReference() noexcept {
-    detach();
-  }
+  ~CoreAndCallbackReference() noexcept { detach(); }
 
   CoreAndCallbackReference(CoreAndCallbackReference const& o) = delete;
   CoreAndCallbackReference& operator=(CoreAndCallbackReference const& o) =
@@ -346,9 +345,7 @@ class CoreBase::CoreAndCallbackReference {
   CoreAndCallbackReference(CoreAndCallbackReference&& o) noexcept
       : core_(std::exchange(o.core_, nullptr)) {}
 
-  CoreBase* getCore() const noexcept {
-    return core_;
-  }
+  CoreBase* getCore() const noexcept { return core_; }
 
  private:
   void detach() noexcept {

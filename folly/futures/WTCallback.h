@@ -16,11 +16,12 @@
 
 #pragma once
 
+#include <future>
+
 #include <folly/Chrono.h>
 #include <folly/futures/Future.h>
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/HHWheelTimer.h>
-#include <future>
 
 namespace folly {
 // Our Callback object for HHWheelTimer
@@ -44,9 +45,7 @@ struct WTCallback : public std::enable_shared_from_this<WTCallback<TBase>>,
     return cob;
   }
 
-  SemiFuture<Unit> getSemiFuture() {
-    return promise_.getSemiFuture();
-  }
+  SemiFuture<Unit> getSemiFuture() { return promise_.getSemiFuture(); }
 
   FOLLY_NODISCARD Promise<Unit> stealPromise() {
     // Don't need promise anymore. Break the circular reference as promise_

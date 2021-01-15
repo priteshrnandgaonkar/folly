@@ -231,9 +231,7 @@ TEST_F(RequestContextTest, deadlockTest) {
           val_, std::make_unique<TestData>(1));
     }
 
-    bool hasCallback() override {
-      return false;
-    }
+    bool hasCallback() override { return false; }
 
     std::string val_;
   };
@@ -260,9 +258,7 @@ TEST_F(RequestContextTest, sharedGlobalTest) {
       global = false;
     }
 
-    bool hasCallback() override {
-      return true;
-    }
+    bool hasCallback() override { return true; }
   };
 
   intptr_t root = 0;
@@ -364,6 +360,30 @@ TEST_F(RequestContextTest, ShallowCopyClear) {
   EXPECT_EQ(1, getData().unset_);
 }
 
+TEST_F(RequestContextTest, ShallowCopyMulti) {
+  RequestContextScopeGuard g0;
+  setData(1, "test1");
+  setData(2, "test2");
+  EXPECT_EQ(1, getData("test1").data_);
+  EXPECT_EQ(2, getData("test2").data_);
+  {
+    ShallowCopyRequestContextScopeGuard g1(
+        RequestDataItem{"test1", std::make_unique<TestData>(2)},
+        RequestDataItem{"test2", std::make_unique<TestData>(4)});
+
+    EXPECT_EQ(2, getData("test1").data_);
+    EXPECT_EQ(4, getData("test2").data_);
+    clearData("test1");
+    clearData("test2");
+    setData(4, "test1");
+    setData(8, "test2");
+    EXPECT_EQ(4, getData("test1").data_);
+    EXPECT_EQ(8, getData("test2").data_);
+  }
+  EXPECT_EQ(1, getData("test1").data_);
+  EXPECT_EQ(2, getData("test2").data_);
+}
+
 TEST_F(RequestContextTest, RootIdOnCopy) {
   auto ctxBase = std::make_shared<RequestContext>(0xab);
   EXPECT_EQ(0xab, ctxBase->getRootId());
@@ -415,9 +435,7 @@ TEST_F(RequestContextTest, Clear) {
       EXPECT_TRUE(cleared);
       deleted = true;
     }
-    bool hasCallback() override {
-      return false;
-    }
+    bool hasCallback() override { return false; }
     void onClear() override {
       EXPECT_FALSE(cleared);
       cleared = true;

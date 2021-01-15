@@ -14,40 +14,20 @@
  * limitations under the License.
  */
 
-#pragma once
+#include <folly/memory/SanitizeAddress.h>
 
-#include <cassert>
-#include <type_traits>
-
-#include <folly/ExceptionWrapper.h>
+//  Address Sanitizer interface may be found at:
+//    https://github.com/llvm-mirror/compiler-rt/blob/master/include/sanitizer/asan_interface.h
+extern "C" FOLLY_ATTR_WEAK void* __asan_region_is_poisoned(void*, std::size_t);
 
 namespace folly {
-namespace coro {
 
-class co_error final {
- public:
-  template <
-      typename... A,
-      std::enable_if_t<
-          sizeof...(A) && std::is_constructible<exception_wrapper, A...>::value,
-          int> = 0>
-  explicit co_error(A&&... a) noexcept(
-      std::is_nothrow_constructible<exception_wrapper, A...>::value)
-      : ex_(static_cast<A&&>(a)...) {
-    assert(ex_);
-  }
+namespace detail {
 
-  const exception_wrapper& exception() const {
-    return ex_;
-  }
+void* asan_region_is_poisoned_(void* const ptr, std::size_t len) {
+  return __asan_region_is_poisoned(ptr, len);
+}
 
-  exception_wrapper& exception() {
-    return ex_;
-  }
+} // namespace detail
 
- private:
-  exception_wrapper ex_;
-};
-
-} // namespace coro
 } // namespace folly

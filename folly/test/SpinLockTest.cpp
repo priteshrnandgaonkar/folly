@@ -16,10 +16,9 @@
 
 #include <folly/SpinLock.h>
 
-#include <folly/Random.h>
-
 #include <thread>
 
+#include <folly/Random.h>
 #include <folly/portability/Asm.h>
 #include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
@@ -33,9 +32,7 @@ struct LockedVal {
   int ar[1024];
   LOCK lock;
 
-  LockedVal() {
-    memset(ar, 0, sizeof ar);
-  }
+  LockedVal() { memset(ar, 0, sizeof ar); }
 };
 
 template <typename LOCK>

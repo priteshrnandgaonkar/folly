@@ -16,12 +16,12 @@
 
 #include <folly/system/Pid.h>
 
-#include <folly/Likely.h>
-#include <folly/detail/AtFork.h>
+#include <atomic>
 
 #include <glog/logging.h>
 
-#include <atomic>
+#include <folly/Likely.h>
+#include <folly/detail/AtFork.h>
 
 namespace folly {
 
@@ -61,9 +61,7 @@ class PidCache {
   }
 
  private:
-  bool valid() {
-    return state_.load() == State::VALID;
-  }
+  bool valid() { return state_.load() == State::VALID; }
 
   FOLLY_COLD pid_t init() {
     pid_t pid = getpid();

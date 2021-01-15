@@ -77,18 +77,14 @@ class atomic_shared_ptr {
   using PackedPtr = folly::PackedSyncPtr<BasePtr>;
 
  public:
-  atomic_shared_ptr() noexcept {
-    init();
-  }
+  atomic_shared_ptr() noexcept { init(); }
   explicit atomic_shared_ptr(SharedPtr foo) /* noexcept */
       : atomic_shared_ptr() {
     store(std::move(foo));
   }
   atomic_shared_ptr(const atomic_shared_ptr<T>&) = delete;
 
-  ~atomic_shared_ptr() {
-    store(SharedPtr(nullptr));
-  }
+  ~atomic_shared_ptr() { store(SharedPtr(nullptr)); }
   void operator=(SharedPtr desired) /* noexcept */ {
     store(std::move(desired));
   }
@@ -104,15 +100,13 @@ class atomic_shared_ptr {
     return true;
   }
 
-  SharedPtr load(std::memory_order order = std::memory_order_seq_cst) const
-      noexcept {
+  SharedPtr load(
+      std::memory_order order = std::memory_order_seq_cst) const noexcept {
     auto local = takeOwnedBase(order);
     return get_shared_ptr(local, false);
   }
 
-  /* implicit */ operator SharedPtr() const {
-    return load();
-  }
+  /* implicit */ operator SharedPtr() const { return load(); }
 
   void store(
       SharedPtr n,
@@ -373,8 +367,8 @@ class atomic_shared_ptr {
     return newlocal;
   }
 
-  void putOwnedBase(BasePtr* p, unsigned int count, std::memory_order mo) const
-      noexcept {
+  void putOwnedBase(BasePtr* p, unsigned int count, std::memory_order mo)
+      const noexcept {
     PackedPtr local = ptr_.load(std::memory_order_acquire);
     while (true) {
       if (local.get() != p) {

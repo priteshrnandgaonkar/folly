@@ -16,6 +16,12 @@
 
 #pragma once
 
+#include <sys/types.h>
+
+#include <chrono>
+#include <map>
+#include <memory>
+
 #include <folly/Optional.h>
 #include <folly/SocketAddress.h>
 #include <folly/detail/SocketFastOpen.h>
@@ -29,12 +35,6 @@
 #include <folly/io/async/EventHandler.h>
 #include <folly/portability/Sockets.h>
 #include <folly/small_vector.h>
-
-#include <sys/types.h>
-
-#include <chrono>
-#include <map>
-#include <memory>
 
 namespace folly {
 
@@ -76,7 +76,31 @@ namespace folly {
 
 class AsyncSocket : public AsyncTransport {
  public:
-  using UniquePtr = std::unique_ptr<AsyncSocket, Destructor>;
+  /**
+   * Use ReleasableDestructor with AsyncSocket to enable transferring the
+   * ownership of the socket owned by smart pointers.
+   */
+  class ReleasableDestructor : public DelayedDestruction::Destructor {
+   public:
+    void operator()(DelayedDestruction* dd) const {
+      if (!released_) {
+        dd->destroy();
+      }
+    }
+
+    /**
+     * Release the object managed by smart pointers. This is used when the
+     * object ownership is transferred to another smart pointer or manually
+     * managed by the caller. The original object must be properly deleted at
+     * the end of its life cycle to avoid resource leaks.
+     */
+    void release() { released_ = true; }
+
+   private:
+    bool released_{false};
+  };
+
+  using UniquePtr = std::unique_ptr<AsyncSocket, ReleasableDestructor>;
 
   class ConnectCallback {
    public:
@@ -143,6 +167,28 @@ class AsyncSocket : public AsyncTransport {
      * @param ex        An exception describing the error that occurred.
      */
     virtual void errMessageError(const AsyncSocketException& ex) noexcept = 0;
+  };
+
+  class ReadAncillaryDataCallback {
+   public:
+    virtual ~ReadAncillaryDataCallback() = default;
+
+    /**
+     * ancillaryData() will be invoked when we read a buffer
+     * from the socket together with the ancillary data.
+     *
+     * @param msgh      Reference to msghdr structure describing
+     *                  a message read together with the data buffer associated
+     *                  with the socket.
+     */
+    virtual void ancillaryData(struct msghdr& msgh) noexcept = 0;
+
+    /**
+     * getAncillaryDataCtrlBuffer() will be invoked in order to fill the
+     * ancillary data buffer when it is received.
+     * getAncillaryDataCtrlBuffer will never return nullptr.
+     */
+    virtual folly::MutableByteRange getAncillaryDataCtrlBuffer() = 0;
   };
 
   class SendMsgParamsCallback {
@@ -304,7 +350,7 @@ class AsyncSocket : public AsyncTransport {
    * destructor is protected and cannot be invoked directly.
    */
   static UniquePtr newSocket(EventBase* evb) {
-    return UniquePtr{new AsyncSocket(evb), Destructor()};
+    return UniquePtr{new AsyncSocket(evb)};
   }
 
   /**
@@ -315,8 +361,8 @@ class AsyncSocket : public AsyncTransport {
       const folly::SocketAddress& address,
       uint32_t connectTimeout = 0,
       bool useZeroCopy = false) {
-    return UniquePtr{new AsyncSocket(evb, address, connectTimeout, useZeroCopy),
-                     Destructor()};
+    return UniquePtr{
+        new AsyncSocket(evb, address, connectTimeout, useZeroCopy)};
   }
 
   /**
@@ -329,15 +375,14 @@ class AsyncSocket : public AsyncTransport {
       uint32_t connectTimeout = 0,
       bool useZeroCopy = false) {
     return UniquePtr{
-        new AsyncSocket(evb, ip, port, connectTimeout, useZeroCopy),
-        Destructor()};
+        new AsyncSocket(evb, ip, port, connectTimeout, useZeroCopy)};
   }
 
   /**
    * Helper function to create an AsyncSocket.
    */
   static UniquePtr newSocket(EventBase* evb, NetworkSocket fd) {
-    return UniquePtr{new AsyncSocket(evb, fd), Destructor()};
+    return UniquePtr{new AsyncSocket(evb, fd)};
   }
 
   /**
@@ -353,16 +398,12 @@ class AsyncSocket : public AsyncTransport {
   /**
    * Get the EventBase used by this socket.
    */
-  EventBase* getEventBase() const override {
-    return eventBase_;
-  }
+  EventBase* getEventBase() const override { return eventBase_; }
 
   /**
    * Get the network socket used by the AsyncSocket.
    */
-  virtual NetworkSocket getNetworkSocket() const {
-    return fd_;
-  }
+  virtual NetworkSocket getNetworkSocket() const { return fd_; }
 
   /**
    * Extract the file descriptor from the AsyncSocket.
@@ -438,9 +479,7 @@ class AsyncSocket : public AsyncTransport {
    * @return Returns the current send timeout, in milliseconds.  A return value
    *         of 0 indicates that no timeout is set.
    */
-  uint32_t getSendTimeout() const override {
-    return sendTimeout_;
-  }
+  uint32_t getSendTimeout() const override { return sendTimeout_; }
 
   /**
    * Set the maximum number of reads to execute from the underlying
@@ -452,9 +491,7 @@ class AsyncSocket : public AsyncTransport {
    * @param maxReads  Maximum number of reads per data-available event;
    *                  a value of zero means unlimited.
    */
-  void setMaxReadsPerEvent(uint16_t maxReads) {
-    maxReadsPerEvent_ = maxReads;
-  }
+  void setMaxReadsPerEvent(uint16_t maxReads) { maxReadsPerEvent_ = maxReads; }
 
   /**
    * Get the maximum number of reads this object will execute from
@@ -464,9 +501,7 @@ class AsyncSocket : public AsyncTransport {
    * @returns Maximum number of reads per data-available event; a value
    *          of zero means unlimited.
    */
-  uint16_t getMaxReadsPerEvent() const {
-    return maxReadsPerEvent_;
-  }
+  uint16_t getMaxReadsPerEvent() const { return maxReadsPerEvent_; }
 
   /**
    * Set a pointer to ErrMessageCallback implementation which will be
@@ -485,6 +520,23 @@ class AsyncSocket : public AsyncTransport {
    *
    */
   virtual ErrMessageCallback* getErrMessageCallback() const;
+
+  /**
+   * Set a pointer to ReadAncillaryDataCallback implementation which will
+   * be invoked with the ancillary data when we read a buffer from the
+   * associated socket.
+   * ReadAncillaryDataCallback is implemented only for platforms with
+   * kernel timestamp support.
+   *
+   */
+  virtual void setReadAncillaryDataCB(ReadAncillaryDataCallback* callback);
+
+  /**
+   * Get a pointer to ReadAncillaryDataCallback implementation currently
+   * registered with this socket.
+   *
+   */
+  virtual ReadAncillaryDataCallback* getReadAncillaryDataCallback() const;
 
   /**
    * Set a pointer to SendMsgParamsCallback implementation which
@@ -512,13 +564,9 @@ class AsyncSocket : public AsyncTransport {
   }
 
   bool setZeroCopy(bool enable) override;
-  bool getZeroCopy() const override {
-    return zeroCopyEnabled_;
-  }
+  bool getZeroCopy() const override { return zeroCopyEnabled_; }
 
-  uint32_t getZeroCopyBufId() const {
-    return zeroCopyBufId_;
-  }
+  uint32_t getZeroCopyBufId() const { return zeroCopyBufId_; }
 
   size_t getZeroCopyReenableThreshold() const {
     return zeroCopyReenableThreshold_;
@@ -545,9 +593,7 @@ class AsyncSocket : public AsyncTransport {
 
   class WriteRequest;
   virtual void writeRequest(WriteRequest* req);
-  void writeRequestReady() {
-    handleWrite();
-  }
+  void writeRequestReady() { handleWrite(); }
 
   // Methods inherited from AsyncTransport
   void close() override;
@@ -569,17 +615,11 @@ class AsyncSocket : public AsyncTransport {
   void getLocalAddress(folly::SocketAddress* address) const override;
   void getPeerAddress(folly::SocketAddress* address) const override;
 
-  bool isEorTrackingEnabled() const override {
-    return trackEor_;
-  }
+  bool isEorTrackingEnabled() const override { return trackEor_; }
 
-  void setEorTracking(bool track) override {
-    trackEor_ = track;
-  }
+  void setEorTracking(bool track) override { trackEor_ = track; }
 
-  bool connecting() const override {
-    return (state_ == StateEnum::CONNECTING);
-  }
+  bool connecting() const override { return (state_ == StateEnum::CONNECTING); }
 
   virtual bool isClosedByPeer() const {
     return (
@@ -593,28 +633,18 @@ class AsyncSocket : public AsyncTransport {
         (readErr_ != READ_EOF && readErr_ != READ_ERROR));
   }
 
-  size_t getAppBytesWritten() const override {
-    return appBytesWritten_;
-  }
+  size_t getAppBytesWritten() const override { return appBytesWritten_; }
 
-  size_t getRawBytesWritten() const override {
-    return getAppBytesWritten();
-  }
+  size_t getRawBytesWritten() const override { return getAppBytesWritten(); }
 
-  size_t getAppBytesReceived() const override {
-    return appBytesReceived_;
-  }
+  size_t getAppBytesReceived() const override { return appBytesReceived_; }
 
-  size_t getRawBytesReceived() const override {
-    return getAppBytesReceived();
-  }
+  size_t getRawBytesReceived() const override { return getAppBytesReceived(); }
 
   size_t getAppBytesBuffered() const override {
     return totalAppBytesScheduledForWrite_ - appBytesWritten_;
   }
-  size_t getRawBytesBuffered() const override {
-    return getAppBytesBuffered();
-  }
+  size_t getRawBytesBuffered() const override { return getAppBytesBuffered(); }
 
   std::chrono::nanoseconds getConnectTime() const {
     return connectEndTime_ - connectStartTime_;
@@ -632,9 +662,7 @@ class AsyncSocket : public AsyncTransport {
     return connectEndTime_;
   }
 
-  bool getTFOAttempted() const {
-    return tfoAttempted_;
-  }
+  bool getTFOAttempted() const { return tfoAttempted_; }
 
   /**
    * Returns whether or not the attempt to use TFO
@@ -642,9 +670,7 @@ class AsyncSocket : public AsyncTransport {
    * mean TFO worked, just that trying to use TFO
    * succeeded.
    */
-  bool getTFOFinished() const {
-    return tfoFinished_;
-  }
+  bool getTFOFinished() const { return tfoFinished_; }
 
   /**
    * Returns whether or not TFO attempt succeded on this
@@ -826,13 +852,9 @@ class AsyncSocket : public AsyncTransport {
 #endif
   }
 
-  void disableTransparentTls() {
-    noTransparentTls_ = true;
-  }
+  void disableTransparentTls() { noTransparentTls_ = true; }
 
-  void disableTSocks() {
-    noTSocks_ = true;
-  }
+  void disableTSocks() { noTSocks_ = true; }
 
   enum class StateEnum : uint8_t {
     UNINIT,
@@ -935,7 +957,10 @@ class AsyncSocket : public AsyncTransport {
   class WriteRequest {
    public:
     WriteRequest(AsyncSocket* socket, WriteCallback* callback)
-        : socket_(socket), callback_(callback) {}
+        : socket_(socket),
+          callback_(callback),
+          releaseIOBufCallback_(
+              callback ? callback->getReleaseIOBufCallback() : nullptr) {}
 
     virtual void start() {}
 
@@ -947,17 +972,11 @@ class AsyncSocket : public AsyncTransport {
 
     virtual bool isComplete() = 0;
 
-    WriteRequest* getNext() const {
-      return next_;
-    }
+    WriteRequest* getNext() const { return next_; }
 
-    WriteCallback* getCallback() const {
-      return callback_;
-    }
+    WriteCallback* getCallback() const { return callback_; }
 
-    uint32_t getTotalBytesWritten() const {
-      return totalBytesWritten_;
-    }
+    uint32_t getTotalBytesWritten() const { return totalBytesWritten_; }
 
     void append(WriteRequest* next) {
       assert(next_ == nullptr);
@@ -980,6 +999,7 @@ class AsyncSocket : public AsyncTransport {
     AsyncSocket* socket_; ///< parent socket
     WriteRequest* next_{nullptr}; ///< pointer to next WriteRequest
     WriteCallback* callback_; ///< completion callback
+    ReleaseIOBufCallback* releaseIOBufCallback_; ///< release IOBuf callback
     uint32_t totalBytesWritten_{0}; ///< total bytes written
   };
 
@@ -1118,9 +1138,7 @@ class AsyncSocket : public AsyncTransport {
     WriteTimeout(AsyncSocket* socket, EventBase* eventBase)
         : AsyncTimeout(eventBase), socket_(socket) {}
 
-    void timeoutExpired() noexcept override {
-      socket_->timeoutExpired();
-    }
+    void timeoutExpired() noexcept override { socket_->timeoutExpired(); }
 
    private:
     AsyncSocket* socket_;
@@ -1337,13 +1355,15 @@ class AsyncSocket : public AsyncTransport {
   bool isZeroCopyMsg(const cmsghdr& cmsg) const;
   void processZeroCopyMsg(const cmsghdr& cmsg);
 
-  uint32_t getNextZeroCopyBufId() {
-    return zeroCopyBufId_++;
-  }
+  uint32_t getNextZeroCopyBufId() { return zeroCopyBufId_++; }
   void adjustZeroCopyFlags(folly::WriteFlags& flags);
-  void addZeroCopyBuf(std::unique_ptr<folly::IOBuf>&& buf);
+  void addZeroCopyBuf(
+      std::unique_ptr<folly::IOBuf>&& buf,
+      ReleaseIOBufCallback* cb);
   void addZeroCopyBuf(folly::IOBuf* ptr);
-  void setZeroCopyBuf(std::unique_ptr<folly::IOBuf>&& buf);
+  void setZeroCopyBuf(
+      std::unique_ptr<folly::IOBuf>&& buf,
+      ReleaseIOBufCallback* cb);
   bool containsZeroCopyBuf(folly::IOBuf* ptr);
   void releaseZeroCopyBuf(uint32_t id);
 
@@ -1357,6 +1377,7 @@ class AsyncSocket : public AsyncTransport {
 
   struct IOBufInfo {
     uint32_t count_{0};
+    ReleaseIOBufCallback* cb_{nullptr};
     std::unique_ptr<folly::IOBuf> buf_;
   };
 
@@ -1382,6 +1403,8 @@ class AsyncSocket : public AsyncTransport {
 
   ConnectCallback* connectCallback_; ///< ConnectCallback
   ErrMessageCallback* errMessageCallback_; ///< TimestampCallback
+  ReadAncillaryDataCallback*
+      readAncillaryDataCallback_; ///< AncillaryDataCallback
   SendMsgParamsCallback* ///< Callback for retrieving
       sendMsgParamCallback_; ///< ::sendmsg() parameters
   ReadCallback* readCallback_; ///< ReadCallback

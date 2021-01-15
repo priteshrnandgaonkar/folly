@@ -16,8 +16,9 @@
 
 #pragma once
 
-#include <folly/io/async/AsyncTransportCertificate.h>
 #include <memory>
+
+#include <folly/io/async/AsyncTransportCertificate.h>
 
 namespace folly {
 namespace ssl {
@@ -40,9 +41,7 @@ class BasicTransportCertificate : public folly::AsyncTransportCertificate {
       folly::ssl::X509UniquePtr x509)
       : identity_(std::move(identity)), x509_(std::move(x509)) {}
 
-  std::string getIdentity() const override {
-    return identity_;
-  }
+  std::string getIdentity() const override { return identity_; }
 
   folly::ssl::X509UniquePtr getX509() const override {
     if (!x509_) {

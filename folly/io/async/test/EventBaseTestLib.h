@@ -14,9 +14,15 @@
  * limitations under the License.
  */
 
+#include <atomic>
+#include <future>
+#include <iostream>
+#include <memory>
+#include <thread>
+
 #include <folly/Memory.h>
 #include <folly/ScopeGuard.h>
-
+#include <folly/futures/Promise.h>
 #include <folly/io/async/AsyncTimeout.h>
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/EventHandler.h>
@@ -24,16 +30,8 @@
 #include <folly/io/async/test/Util.h>
 #include <folly/portability/Stdlib.h>
 #include <folly/portability/Unistd.h>
-#include <folly/system/ThreadName.h>
-
-#include <folly/futures/Promise.h>
 #include <folly/synchronization/Baton.h>
-
-#include <atomic>
-#include <future>
-#include <iostream>
-#include <memory>
-#include <thread>
+#include <folly/system/ThreadName.h>
 
 #define FOLLY_SKIP_IF_NULLPTR_BACKEND_WITH_OPTS(evb, opts)  \
   std::unique_ptr<EventBase> evb##Ptr;                      \
@@ -910,9 +908,7 @@ class DestroyHandler : public AsyncTimeout {
   DestroyHandler(EventBase* eb, EventHandler* h)
       : AsyncTimeout(eb), handler_(h) {}
 
-  void timeoutExpired() noexcept override {
-    delete handler_;
-  }
+  void timeoutExpired() noexcept override { delete handler_; }
 
  private:
   EventHandler* handler_;
@@ -1039,9 +1035,7 @@ class TestTimeout : public AsyncTimeout {
   explicit TestTimeout(EventBase* eventBase)
       : AsyncTimeout(eventBase), timestamp(false) {}
 
-  void timeoutExpired() noexcept override {
-    timestamp.reset();
-  }
+  void timeoutExpired() noexcept override { timestamp.reset(); }
 
   TimePoint timestamp;
 };
@@ -1075,9 +1069,7 @@ class ReschedulingTimeout : public AsyncTimeout {
   ReschedulingTimeout(EventBase* evb, const std::vector<uint32_t>& timeouts)
       : AsyncTimeout(evb), timeouts_(timeouts), iterator_(timeouts_.begin()) {}
 
-  void start() {
-    reschedule();
-  }
+  void start() { reschedule(); }
 
   void timeoutExpired() noexcept override {
     timestamps.emplace_back();
@@ -1198,9 +1190,7 @@ class DestroyTimeout : public AsyncTimeout {
   DestroyTimeout(EventBase* eb, AsyncTimeout* t)
       : AsyncTimeout(eb), timeout_(t) {}
 
-  void timeoutExpired() noexcept override {
-    delete timeout_;
-  }
+  void timeoutExpired() noexcept override { delete timeout_; }
 
  private:
   AsyncTimeout* timeout_;
@@ -1404,6 +1394,13 @@ TYPED_TEST_P(EventBaseTest, RunInThread) {
 //  whether any of the race conditions happened.
 TYPED_TEST_P(EventBaseTest, RunInEventBaseThreadAndWait) {
   const size_t c = 256;
+  std::vector<std::unique_ptr<EventBase>> evbs;
+  for (size_t i = 0; i < c; ++i) {
+    auto evbPtr = getEventBase<TypeParam>();
+    SKIP_IF(!evbPtr) << "Backend not available";
+    evbs.push_back(std::move(evbPtr));
+  }
+
   std::vector<std::unique_ptr<std::atomic<size_t>>> atoms(c);
   for (size_t i = 0; i < c; ++i) {
     auto& atom = atoms.at(i);
@@ -1411,9 +1408,7 @@ TYPED_TEST_P(EventBaseTest, RunInEventBaseThreadAndWait) {
   }
   std::vector<std::thread> threads;
   for (size_t i = 0; i < c; ++i) {
-    auto evbPtr = getEventBase<TypeParam>();
-    SKIP_IF(!evbPtr) << "Backend not available";
-    threads.emplace_back([&atoms, i, evb = std::move(evbPtr)] {
+    threads.emplace_back([&atoms, i, evb = std::move(evbs[i])] {
       folly::EventBase& eb = *evb;
       auto& atom = *atoms.at(i);
       auto ebth = std::thread([&] { eb.loopForever(); });
@@ -1502,9 +1497,7 @@ class CountedLoopCallback : public EventBase::LoopCallback {
     }
   }
 
-  unsigned int getCount() const {
-    return count_;
-  }
+  unsigned int getCount() const { return count_; }
 
  private:
   EventBase* eventBase_;
@@ -1580,11 +1573,20 @@ TYPED_TEST_P(EventBaseTest, RunInLoopStopLoop) {
   ASSERT_LE(c1.getCount(), 11);
 }
 
+TYPED_TEST_P(EventBaseTest1, pidCheck) {
+  auto evbPtr = getEventBase<TypeParam>();
+  SKIP_IF(!evbPtr) << "Backend not available";
+
+  auto deadManWalking = [&]() { evbPtr->loopForever(); };
+  EXPECT_DEATH(deadManWalking(), "pid");
+}
+
 TYPED_TEST_P(EventBaseTest, messageAvailableException) {
   auto evbPtr = getEventBase<TypeParam>();
   SKIP_IF(!evbPtr) << "Backend not available";
 
-  auto deadManWalking = [evb = std::move(evbPtr)]() mutable {
+  auto deadManWalking = []() {
+    auto evb = getEventBase<TypeParam>();
     std::thread t([&] {
       // Call this from another thread to force use of NotificationQueue in
       // runInEventBaseThread
@@ -1593,7 +1595,7 @@ TYPED_TEST_P(EventBaseTest, messageAvailableException) {
     t.join();
     evb->loopForever();
   };
-  EXPECT_DEATH(deadManWalking(), ".*");
+  EXPECT_DEATH(deadManWalking(), "boom");
 }
 
 TYPED_TEST_P(EventBaseTest, TryRunningAfterTerminate) {
@@ -1714,12 +1716,8 @@ class TerminateTestCallback : public EventBase::LoopCallback,
     registerHandler(READ);
   }
 
-  uint32_t getLoopInvocations() const {
-    return loopInvocations_;
-  }
-  uint32_t getEventInvocations() const {
-    return eventInvocations_;
-  }
+  uint32_t getLoopInvocations() const { return loopInvocations_; }
+  uint32_t getEventInvocations() const { return eventInvocations_; }
 
  private:
   EventBase* eventBase_;
@@ -1883,9 +1881,7 @@ class IdleTimeTimeoutSeries : public AsyncTimeout {
     }
   }
 
-  int getTimeouts() const {
-    return timeouts_;
-  }
+  int getTimeouts() const { return timeouts_; }
 
  private:
   int timeouts_;
@@ -2044,9 +2040,7 @@ class PipeHandler : public EventHandler {
   PipeHandler(EventBase* eventBase, int fd)
       : EventHandler(eventBase, NetworkSocket::fromFd(fd)) {}
 
-  void handlerReady(uint16_t /* events */) noexcept override {
-    abort();
-  }
+  void handlerReady(uint16_t /* events */) noexcept override { abort(); }
 };
 } // namespace
 
@@ -2369,9 +2363,7 @@ TYPED_TEST_P(EventBaseTest1, RunOnDestructionCancelled) {
   struct Callback : EventBase::OnDestructionCallback {
     bool ranOnDestruction{false};
 
-    void onEventBaseDestruction() noexcept final {
-      ranOnDestruction = true;
-    }
+    void onEventBaseDestruction() noexcept final { ranOnDestruction = true; }
   };
 
   auto cb = std::make_unique<Callback>();
@@ -2475,6 +2467,7 @@ REGISTER_TYPED_TEST_CASE_P(
     RunOnDestructionCancelled,
     RunOnDestructionAfterHandleDestroyed,
     RunOnDestructionAddCallbackWithinCallback,
-    InternalExternalCallbackOrderTest);
+    InternalExternalCallbackOrderTest,
+    pidCheck);
 } // namespace test
 } // namespace folly

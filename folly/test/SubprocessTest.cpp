@@ -17,6 +17,7 @@
 #include <folly/Subprocess.h>
 
 #include <sys/types.h>
+
 #include <chrono>
 
 #include <boost/container/flat_set.hpp>
@@ -186,6 +187,15 @@ TEST(SimpleSubprocessTest, waitOrTerminateOrKill_terminates_if_timeout) {
   auto retCode = proc.waitOrTerminateOrKill(1s, 1s);
   EXPECT_TRUE(retCode.killed());
   EXPECT_EQ(SIGTERM, retCode.killSignal());
+}
+
+TEST(
+    SimpleSubprocessTest,
+    destructor_doesNotFail_ifOkToDestroyWhileProcessRunning) {
+  Subprocess proc(
+      std::vector<std::string>{"/bin/sleep", "10"},
+      Subprocess::Options().allowDestructionWhileProcessRunning(true));
+  proc.~Subprocess();
 }
 
 // This method verifies terminateOrKill shouldn't affect the exit

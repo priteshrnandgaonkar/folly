@@ -21,10 +21,9 @@
 #include <functional>
 #include <string>
 
-#include <folly/synchronization/RWSpinLock.h>
-
 #include <folly/io/async/AsyncServerSocket.h>
 #include <folly/io/async/AsyncSocket.h>
+#include <folly/synchronization/RWSpinLock.h>
 
 namespace folly {
 namespace test {
@@ -164,9 +163,7 @@ class TestAcceptCallback : public AsyncServerSocket::AcceptCallback {
         acceptStoppedFn_(),
         events_() {}
 
-  std::deque<EventInfo>* getEvents() {
-    return &events_;
-  }
+  std::deque<EventInfo>* getEvents() { return &events_; }
 
   void setConnectionAcceptedFn(
       const std::function<void(NetworkSocket, const folly::SocketAddress&)>&

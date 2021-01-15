@@ -18,13 +18,16 @@
  *  A benchmark comparing SparseByteSet to bitset<256> and bool[256].
  */
 
-#include <folly/Benchmark.h>
-#include <folly/Format.h>
 #include <folly/container/SparseByteSet.h>
-#include <folly/portability/GFlags.h>
+
 #include <bitset>
 #include <random>
 #include <vector>
+
+#include <fmt/core.h>
+#include <folly/Benchmark.h>
+#include <folly/Format.h>
+#include <folly/portability/GFlags.h>
 
 using namespace std;
 using namespace folly;
@@ -42,18 +45,14 @@ class BitSetWrapper {
     }
     return r;
   }
-  inline bool contains(uint8_t i) {
-    return rep_[i];
-  }
+  inline bool contains(uint8_t i) { return rep_[i]; }
 
  private:
   bitset<256> rep_;
 };
 class BoolArraySet {
  public:
-  BoolArraySet() {
-    memset(rep_, 0, sizeof(rep_));
-  }
+  BoolArraySet() { memset(rep_, 0, sizeof(rep_)); }
   inline bool add(uint8_t i) {
     auto r = !contains(i);
     if (r) {
@@ -61,9 +60,7 @@ class BoolArraySet {
     }
     return r;
   }
-  inline bool contains(uint8_t i) {
-    return rep_[i];
-  }
+  inline bool contains(uint8_t i) { return rep_[i]; }
 
  private:
   bool rep_[256];
@@ -121,23 +118,23 @@ void setup_rand_bench() {
     tie(size_add, size_contains) = kvp;
     addBenchmark(
         __FILE__,
-        sformat("bitset_rand_bench({}, {})", size_add, size_contains).c_str(),
+        fmt::format("bitset_rand_bench({}, {})", size_add, size_contains),
         [=](int iters) {
           rand_bench<BitSetWrapper>(iters, size_add, size_contains);
           return iters;
         });
     addBenchmark(
         __FILE__,
-        sformat("%bool_array_set_rand_bench({}, {})", size_add, size_contains)
-            .c_str(),
+        fmt::format(
+            "%bool_array_set_rand_bench({}, {})", size_add, size_contains),
         [=](int iters) {
           rand_bench<BoolArraySet>(iters, size_add, size_contains);
           return iters;
         });
     addBenchmark(
         __FILE__,
-        sformat("%sparse_byte_set_rand_bench({}, {})", size_add, size_contains)
-            .c_str(),
+        fmt::format(
+            "%sparse_byte_set_rand_bench({}, {})", size_add, size_contains),
         [=](int iters) {
           rand_bench<SparseByteSet>(iters, size_add, size_contains);
           return iters;

@@ -41,6 +41,8 @@
 #include <string_view> // @manual
 #endif
 
+#include <fmt/format.h>
+
 #include <folly/CpuId.h>
 #include <folly/Likely.h>
 #include <folly/Traits.h>
@@ -427,27 +429,13 @@ class Range {
   constexpr size_type walk_size() const {
     return size_type(std::distance(b_, e_));
   }
-  constexpr bool empty() const {
-    return b_ == e_;
-  }
-  constexpr Iter data() const {
-    return b_;
-  }
-  constexpr Iter start() const {
-    return b_;
-  }
-  constexpr Iter begin() const {
-    return b_;
-  }
-  constexpr Iter end() const {
-    return e_;
-  }
-  constexpr Iter cbegin() const {
-    return b_;
-  }
-  constexpr Iter cend() const {
-    return e_;
-  }
+  constexpr bool empty() const { return b_ == e_; }
+  constexpr Iter data() const { return b_; }
+  constexpr Iter start() const { return b_; }
+  constexpr Iter begin() const { return b_; }
+  constexpr Iter end() const { return e_; }
+  constexpr Iter cbegin() const { return b_; }
+  constexpr Iter cend() const { return e_; }
   value_type& front() {
     assert(b_ < e_);
     return *b_;
@@ -587,16 +575,10 @@ class Range {
   }
 
   // Works only for Range<const char*> and Range<char*>
-  std::string str() const {
-    return to<std::string>();
-  }
-  std::string toString() const {
-    return to<std::string>();
-  }
+  std::string str() const { return to<std::string>(); }
+  std::string toString() const { return to<std::string>(); }
 
-  const_range_type castToConst() const {
-    return const_range_type(*this);
-  }
+  const_range_type castToConst() const { return const_range_type(*this); }
 
   int compare(const const_range_type& o) const {
     const size_type tsize = this->size();
@@ -753,13 +735,9 @@ class Range {
     return ret == npos ? ret : ret + pos;
   }
 
-  size_type find(value_type c) const {
-    return qfind(castToConst(), c);
-  }
+  size_type find(value_type c) const { return qfind(castToConst(), c); }
 
-  size_type rfind(value_type c) const {
-    return folly::rfind(castToConst(), c);
-  }
+  size_type rfind(value_type c) const { return folly::rfind(castToConst(), c); }
 
   size_type find(value_type c, size_t pos) const {
     if (pos > size()) {
@@ -795,9 +773,7 @@ class Range {
     return find_first_of(const_range_type(needles, n), pos);
   }
 
-  size_type find_first_of(value_type c) const {
-    return find(c);
-  }
+  size_type find_first_of(value_type c) const { return find(c); }
 
   size_type find_first_of(value_type c, size_t pos) const {
     return find(c, pos);
@@ -828,9 +804,7 @@ class Range {
     return size() >= other.size() &&
         castToConst().subpiece(0, other.size()) == other;
   }
-  bool startsWith(value_type c) const {
-    return !empty() && front() == c;
-  }
+  bool startsWith(value_type c) const { return !empty() && front() == c; }
 
   template <class Comp>
   bool startsWith(const const_range_type& other, Comp&& eq) const {
@@ -849,9 +823,7 @@ class Range {
     return size() >= other.size() &&
         castToConst().subpiece(size() - other.size()) == other;
   }
-  bool endsWith(value_type c) const {
-    return !empty() && back() == c;
-  }
+  bool endsWith(value_type c) const { return !empty() && back() == c; }
 
   template <class Comp>
   bool endsWith(const const_range_type& other, Comp&& eq) const {
@@ -1374,9 +1346,7 @@ size_t qfind_first_of(
 }
 
 struct AsciiCaseSensitive {
-  bool operator()(char lhs, char rhs) const {
-    return lhs == rhs;
-  }
+  bool operator()(char lhs, char rhs) const { return lhs == rhs; }
 };
 
 /**
@@ -1555,6 +1525,21 @@ constexpr Range<wchar_t const*> operator"" _sp(
 } // namespace literals
 
 } // namespace folly
+
+// Avoid ambiguity in older fmt versions due to StringPiece's conversions.
+#if FMT_VERSION >= 70000
+namespace fmt {
+template <>
+struct formatter<folly::StringPiece> : private formatter<string_view> {
+  using formatter<string_view>::parse;
+
+  template <typename Context>
+  auto format(folly::StringPiece s, Context& ctx) {
+    return formatter<string_view>::format({s.data(), s.size()}, ctx);
+  }
+};
+} // namespace fmt
+#endif
 
 FOLLY_POP_WARNING
 

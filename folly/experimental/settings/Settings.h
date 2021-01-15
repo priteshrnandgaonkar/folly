@@ -36,6 +36,8 @@ namespace detail {
 template <class T, std::atomic<uint64_t>* TrivialPtr>
 class SettingWrapper {
  public:
+  using CallbackHandle = typename SettingCore<T>::CallbackHandle;
+
   /**
    * Returns the setting's current value.
    *
@@ -48,9 +50,7 @@ class SettingWrapper {
   std::conditional_t<IsSmallPOD<T>::value, T, const T&> operator*() const {
     return core_.getWithHint(*TrivialPtr);
   }
-  const T* operator->() const {
-    return &core_.getSlow().value;
-  }
+  const T* operator->() const { return &core_.getSlow().value; }
 
   /**
    * Returns the setting's current value. Equivalent to dereference operator
@@ -78,8 +78,19 @@ class SettingWrapper {
    * @param reason  Will be stored with the current value, useful for debugging.
    * @throws std::runtime_error  If we can't convert t to string.
    */
-  void set(const T& t, StringPiece reason = "api") {
-    core_.set(t, reason);
+  void set(const T& t, StringPiece reason = "api") { core_.set(t, reason); }
+
+  /**
+   * Adds a callback to be invoked any time the setting is updated. Callback
+   * is not invoked for snapshot updates unless published.
+   *
+   * @param callback  void function that accepts a SettingsContents with value
+   *        and reason, to be invoked on updates
+   * @returns  a handle object which automatically removes the callback from
+   *           processing once destroyd
+   */
+  CallbackHandle addCallback(typename SettingCore<T>::UpdateCallback callback) {
+    return core_.addCallback(std::move(callback));
   }
 
   /**
@@ -88,9 +99,7 @@ class SettingWrapper {
    * representation of the default value.  This method returns the
    * actual value that was passed on construction.
    */
-  const T& defaultValue() const {
-    return core_.defaultValue();
-  }
+  const T& defaultValue() const { return core_.defaultValue(); }
 
   explicit SettingWrapper(SettingCore<T>& core) : core_(core) {}
 
@@ -232,9 +241,7 @@ class SnapshotSettingWrapper {
    * whichever happens earlier.
    */
   const T& operator*() const;
-  const T* operator->() const {
-    return &operator*();
-  }
+  const T* operator->() const { return &operator*(); }
 
   /**
    * Update the setting in the snapshot, the effects are not visible

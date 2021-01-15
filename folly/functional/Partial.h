@@ -16,11 +16,11 @@
 
 #pragma once
 
-#include <folly/Utility.h>
-#include <folly/functional/Invoke.h>
-
 #include <tuple>
 #include <utility>
+
+#include <folly/Utility.h>
+#include <folly/functional/Invoke.h>
 
 namespace folly {
 
@@ -121,9 +121,10 @@ template <typename F, typename... Args>
 auto partial(F&& f, Args&&... args) -> detail::partial::Partial< //
     typename std::decay<F>::type,
     typename std::decay<Args>::type...> {
-  return {detail::partial::PartialConstructFromCallable{},
-          std::forward<F>(f),
-          std::forward<Args>(args)...};
+  return {
+      detail::partial::PartialConstructFromCallable{},
+      std::forward<F>(f),
+      std::forward<Args>(args)...};
 }
 
 } // namespace folly

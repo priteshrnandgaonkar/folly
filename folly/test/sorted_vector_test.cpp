@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#include <folly/small_vector.h>
-#include <folly/sorted_vector_types.h>
-
 #include <iterator>
 #include <list>
 #include <memory>
@@ -28,6 +25,8 @@
 #include <folly/memory/Malloc.h>
 #include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
+#include <folly/small_vector.h>
+#include <folly/sorted_vector_types.h>
 
 using folly::sorted_vector_map;
 using folly::sorted_vector_set;
@@ -36,9 +35,7 @@ namespace {
 
 template <class T>
 struct less_invert {
-  bool operator()(const T& a, const T& b) const {
-    return b < a;
-  }
+  bool operator()(const T& a, const T& b) const { return b < a; }
 };
 
 template <class Container>
@@ -74,9 +71,7 @@ struct CountCopyCtor {
     ++gCount_;
   }
 
-  bool operator<(const CountCopyCtor& o) const {
-    return val_ < o.val_;
-  }
+  bool operator<(const CountCopyCtor& o) const { return val_ < o.val_; }
 
   int val_;
   int count_;
@@ -774,9 +769,7 @@ TEST(SortedVectorTypes, TestBulkInsertionUncopyableTypes) {
 struct Movable {
   int x_;
   explicit Movable(int x) : x_(x) {}
-  Movable(const Movable&) {
-    ADD_FAILURE() << "Copy ctor should not be called";
-  }
+  Movable(const Movable&) { ADD_FAILURE() << "Copy ctor should not be called"; }
   Movable& operator=(const Movable&) {
     ADD_FAILURE() << "Copy assignment should not be called";
     return *this;

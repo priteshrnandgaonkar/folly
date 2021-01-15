@@ -19,18 +19,18 @@
 #ifndef _WIN32
 #include <dlfcn.h>
 #endif
-#include <csignal>
 
+#include <csignal>
 #include <iostream>
 #include <mutex>
+
+#include <glog/logging.h>
 
 #include <folly/Singleton.h>
 #include <folly/SpinLock.h>
 #include <folly/Synchronized.h>
 #include <folly/portability/SysMman.h>
 #include <folly/portability/Unistd.h>
-
-#include <glog/logging.h>
 
 namespace folly {
 namespace fibers {
@@ -316,9 +316,7 @@ class StackCacheEntry {
       : stackCache_(
             std::make_unique<StackCache>(stackSize, guardPagesPerStack)) {}
 
-  StackCache& cache() const noexcept {
-    return *stackCache_;
-  }
+  StackCache& cache() const noexcept { return *stackCache_; }
 
   ~StackCacheEntry() {
     CacheManager::instance().giveBack(std::move(stackCache_));

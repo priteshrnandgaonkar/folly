@@ -381,9 +381,7 @@ TEST(LZMATest, UncompressBadVarint) {
 
 class CompressionCorruptionTest : public testing::TestWithParam<CodecType> {
  protected:
-  void SetUp() override {
-    codec_ = getCodec(GetParam());
-  }
+  void SetUp() override { codec_ = getCodec(GetParam()); }
 
   void runSimpleTest(const DataHolder& dh);
 
@@ -466,13 +464,9 @@ static bool codecHasFlush(CodecType type) {
 
 class StreamingUnitTest : public testing::TestWithParam<CodecType> {
  protected:
-  void SetUp() override {
-    codec_ = getStreamCodec(GetParam());
-  }
+  void SetUp() override { codec_ = getStreamCodec(GetParam()); }
 
-  bool hasFlush() const {
-    return codecHasFlush(GetParam());
-  }
+  bool hasFlush() const { return codecHasFlush(GetParam()); }
 
   std::unique_ptr<StreamCodec> codec_;
 };
@@ -633,8 +627,8 @@ TEST_P(StreamingUnitTest, noForwardProgress) {
       codec_->resetStream();
     }
     auto input = inBuffer->coalesce();
-    MutableByteRange output = {outBuffer->writableTail(),
-                               outBuffer->tailroom()};
+    MutableByteRange output = {
+        outBuffer->writableTail(), outBuffer->tailroom()};
     // Compress some data to avoid empty data special casing
     while (!input.empty()) {
       codec_->compressStream(input, output);
@@ -793,9 +787,7 @@ INSTANTIATE_TEST_CASE_P(
 class StreamingCompressionTest
     : public testing::TestWithParam<std::tuple<int, int, CodecType>> {
  protected:
-  bool hasFlush() const {
-    return codecHasFlush(std::get<2>(GetParam()));
-  }
+  bool hasFlush() const { return codecHasFlush(std::get<2>(GetParam())); }
 
   void SetUp() override {
     auto const tup = GetParam();
@@ -1137,9 +1129,7 @@ class CustomCodec : public Codec {
         codec_(getCodec(type)) {}
 
  private:
-  std::vector<std::string> validPrefixes() const override {
-    return {prefix_};
-  }
+  std::vector<std::string> validPrefixes() const override { return {prefix_}; }
 
   uint64_t doMaxCompressedLength(uint64_t uncompressedLength) const override {
     return codec_->maxCompressedLength(uncompressedLength) + prefix_.size();

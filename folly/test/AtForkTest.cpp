@@ -16,12 +16,13 @@
 
 #include <folly/detail/AtFork.h>
 
-#include <folly/portability/GTest.h>
-#include <glog/logging.h>
-
 #include <atomic>
 #include <mutex>
 #include <thread>
+
+#include <glog/logging.h>
+
+#include <folly/portability/GTest.h>
 
 TEST(ThreadLocal, AtFork) {
   int foo;
@@ -34,7 +35,9 @@ TEST(ThreadLocal, AtFork) {
       },
       [] {},
       [] {});
-  auto pid = fork();
+  auto pid = folly::kIsSanitizeThread
+      ? folly::detail::AtFork::forkInstrumented(fork)
+      : fork();
   if (pid) {
     int status;
     auto pid2 = wait(&status);
@@ -84,7 +87,9 @@ TEST(ThreadLocal, AtForkOrdering) {
   });
   while (!started) {
   }
-  auto pid = fork();
+  auto pid = folly::kIsSanitizeThread
+      ? folly::detail::AtFork::forkInstrumented(fork)
+      : fork();
   if (pid) {
     int status;
     auto pid2 = wait(&status);

@@ -22,6 +22,8 @@
 #include <utility>
 #include <vector>
 
+#include <glog/logging.h>
+
 #include <folly/Executor.h>
 #include <folly/Function.h>
 #include <folly/Optional.h>
@@ -29,13 +31,11 @@
 #include <folly/Try.h>
 #include <folly/Utility.h>
 #include <folly/futures/detail/Types.h>
+#include <folly/io/async/Request.h>
 #include <folly/lang/Assume.h>
 #include <folly/lang/Exception.h>
 #include <folly/synchronization/AtomicUtil.h>
 #include <folly/synchronization/MicroSpinLock.h>
-#include <glog/logging.h>
-
-#include <folly/io/async/Request.h>
 
 namespace folly {
 namespace futures {
@@ -197,9 +197,7 @@ class InterruptHandlerImpl : public InterruptHandler {
  public:
   explicit InterruptHandlerImpl(F f) : f_(std::move(f)) {}
 
-  void handle(const folly::exception_wrapper& ew) const override {
-    f_(ew);
-  }
+  void handle(const folly::exception_wrapper& ew) const override { f_(ew); }
 
  private:
   F f_;
@@ -259,15 +257,15 @@ class InterruptHandlerImpl : public InterruptHandler {
 ///   |      \           (setCallback())           (setResult())       |
 ///   |       \             \                       /                  |
 ///   |        \              ---> OnlyCallback ---                    |
-///   |        \            or OnlyCallbackAllowInline                 |
-///   |         \                                   \                  |
-///   |     (setProxy())                           (setProxy())        |
-///   |           \                                   \                |
-///   |            \                                    ------> Empty  |
-///   |             \                                 /                |
-///   |              \                             (setCallback())     |
-///   |               \                             /                  |
-///   |                 ---------> Proxy ----------                    |
+///   |         \           or OnlyCallbackAllowInline                 |
+///   |          \                                  \                  |
+///   |      (setProxy())                          (setProxy())        |
+///   |            \                                  \                |
+///   |             \                                   ------> Empty  |
+///   |              \                                /                |
+///   |               \                            (setCallback())     |
+///   |                \                            /                  |
+///   |                  --------> Proxy ----------                    |
 ///   +----------------------------------------------------------------+
 ///
 /// States and the corresponding producer-to-consumer data status & ownership:
@@ -354,8 +352,8 @@ class CoreBase {
 
   /// May call from any thread
   bool hasCallback() const noexcept {
-    constexpr auto allowed =
-        State::OnlyCallback | State::OnlyCallbackAllowInline | State::Done;
+    constexpr auto allowed = State::OnlyCallback |
+        State::OnlyCallbackAllowInline | State::Done | State::Empty;
     auto const state = state_.load(std::memory_order_acquire);
     return State() != (state & allowed);
   }
@@ -372,16 +370,12 @@ class CoreBase {
   /// True if state is OnlyResult or Done.
   ///
   /// Identical to `this->hasResult()`
-  bool ready() const noexcept {
-    return hasResult();
-  }
+  bool ready() const noexcept { return hasResult(); }
 
   /// Called by a destructing Future (in the consumer thread, by definition).
   /// Calls `delete this` if there are no more references to `this`
   /// (including if `detachPromise()` is called previously or concurrently).
-  void detachFuture() noexcept {
-    detachOne();
-  }
+  void detachFuture() noexcept { detachOne(); }
 
   /// Called by a destructing Promise (in the producer thread, by definition).
   /// Calls `delete this` if there are no more references to `this`
@@ -516,15 +510,11 @@ class Core final : private ResultHolder<T>, public CoreBase {
   using Result = Try<T>;
 
   /// State will be Start
-  static Core* make() {
-    return new Core();
-  }
+  static Core* make() { return new Core(); }
 
   /// State will be OnlyResult
   /// Result held will be move-constructed from `t`
-  static Core* make(Try<T>&& t) {
-    return new Core(std::move(t));
-  }
+  static Core* make(Try<T>&& t) { return new Core(std::move(t)); }
 
   /// State will be OnlyResult
   /// Result held will be the `T` constructed from forwarded `args`

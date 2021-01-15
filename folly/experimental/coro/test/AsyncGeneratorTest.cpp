@@ -66,9 +66,7 @@ TEST_F(AsyncGeneratorTest, PartiallyConsumingSequenceDestroysObjectsInScope) {
   bool started = false;
   bool destroyed = false;
   auto makeGenerator = [&]() -> folly::coro::AsyncGenerator<int> {
-    SCOPE_EXIT {
-      destroyed = true;
-    };
+    SCOPE_EXIT { destroyed = true; };
     started = true;
     co_yield 1;
     co_yield 2;
@@ -212,9 +210,7 @@ TEST_F(AsyncGeneratorTest, ProduceResultsAsynchronously) {
 
 struct ConvertibleToIntReference {
   int value;
-  operator int&() {
-    return value;
-  }
+  operator int&() { return value; }
 };
 
 TEST_F(AsyncGeneratorTest, GeneratorOfLValueReference) {
@@ -243,9 +239,7 @@ TEST_F(AsyncGeneratorTest, GeneratorOfLValueReference) {
 }
 
 struct ConvertibleToInt {
-  operator int() const {
-    return 99;
-  }
+  operator int() const { return 99; }
 };
 
 TEST_F(AsyncGeneratorTest, GeneratorOfConstLValueReference) {
@@ -305,9 +299,7 @@ struct MoveOnly {
       : value_(std::exchange(other.value_, -1)) {}
   ~MoveOnly() {}
   MoveOnly& operator=(MoveOnly&&) = delete;
-  int value() const {
-    return value_;
-  }
+  int value() const { return value_; }
 
  private:
   int value_;
@@ -373,7 +365,7 @@ TEST_F(AsyncGeneratorTest, ExplicitValueType) {
                                  std::tuple<const std::string&, std::string&>,
                                  std::tuple<std::string, std::string>> {
     for (auto& [k, v] : items) {
-      co_yield{k, v};
+      co_yield {k, v};
     }
   };
 
@@ -510,6 +502,78 @@ TEST(AsyncGenerator, YieldCoError) {
       CHECK(false);
     } catch (SomeError) {
     }
+  }());
+}
+
+TEST(AsyncGenerator, YieldCoResult) {
+  folly::coro::blockingWait([]() -> folly::coro::Task<void> {
+    auto gen = []() -> folly::coro::AsyncGenerator<std::string> {
+      co_yield folly::coro::co_result(folly::Try<std::string>("foo"));
+      co_yield folly::coro::co_result(folly::Try<std::string>("bar"));
+      co_yield folly::coro::co_result(folly::Try<std::string>(SomeError{}));
+      ADD_FAILURE();
+    }();
+
+    auto item1 = co_await gen.next();
+    CHECK(item1.value() == "foo");
+    auto item2 = co_await gen.next();
+    CHECK(item2.value() == "bar");
+
+    EXPECT_THROW(co_await gen.next(), SomeError);
+
+    gen = []() -> folly::coro::AsyncGenerator<std::string> {
+      co_yield folly::coro::co_result(folly::Try<std::string>("foo"));
+      co_yield folly::coro::co_result(folly::Try<std::string>("bar"));
+      co_yield folly::coro::co_result(folly::Try<std::string>());
+      ADD_FAILURE();
+    }();
+
+    item1 = co_await gen.next();
+    CHECK(item1.value() == "foo");
+    item2 = co_await gen.next();
+    CHECK(item2.value() == "bar");
+    EXPECT_FALSE(co_await gen.next());
+  }());
+}
+
+TEST(AsyncGenerator, CoResultProxyExample) {
+  folly::coro::blockingWait([]() -> folly::coro::Task<void> {
+    auto makeProxy = [](folly::coro::AsyncGenerator<int> gen)
+        -> folly::coro::AsyncGenerator<int> {
+      while (true) {
+        auto t = co_await folly::coro::co_awaitTry(gen.next());
+        co_yield folly::coro::co_result(std::move(t));
+      }
+    };
+
+    auto gen = []() -> folly::coro::AsyncGenerator<int> {
+      for (int i = 0; i < 5; ++i) {
+        co_yield i;
+      }
+    }();
+
+    auto proxy = makeProxy(std::move(gen));
+
+    for (int i = 0; i < 5; ++i) {
+      auto val = co_await proxy.next();
+      EXPECT_EQ(*val, i);
+    }
+    EXPECT_FALSE(co_await proxy.next());
+
+    gen = []() -> folly::coro::AsyncGenerator<int> {
+      for (int i = 0; i < 5; ++i) {
+        co_yield i;
+      }
+      throw SomeError();
+    }();
+
+    proxy = makeProxy(std::move(gen));
+
+    for (int i = 0; i < 5; ++i) {
+      auto val = co_await proxy.next();
+      EXPECT_EQ(*val, i);
+    }
+    EXPECT_THROW(co_await proxy.next(), SomeError);
   }());
 }
 

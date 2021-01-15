@@ -135,16 +135,14 @@ class SSLContext {
    * Make sure that you only call this when there was no intervening operation
    * since the last OpenSSL error that may have changed the current errno value.
    */
-  static std::string getErrors() {
-    return getErrors(errno);
-  }
+  static std::string getErrors() { return getErrors(errno); }
 
   /**
    * Constructor.
    *
    * @param version The lowest or oldest SSL version to support.
    */
-  explicit SSLContext(SSLVersion version = TLSv1);
+  explicit SSLContext(SSLVersion version = TLSv1_2);
   /**
    * Constructor that helps ease migrations by directly wrapping a provided
    * SSL_CTX*
@@ -153,22 +151,22 @@ class SSLContext {
   virtual ~SSLContext();
 
   /**
-   * Set default ciphers to be used in SSL handshake process.
+   * Set default TLS 1.2 and below ciphers to be used in SSL handshake process.
    *
    * @param ciphers A list of ciphers to use for TLSv1.0
    */
   virtual void ciphers(const std::string& ciphers);
 
   /**
-   * Low-level method that attempts to set the provided ciphers on the
-   * SSL_CTX object, and throws if something goes wrong.
+   * Low-level method that attempts to set the provided TLS 1.2
+   * and below ciphers on the SSL_CTX object,
+   * and throws if something goes wrong.
    */
   virtual void setCiphersOrThrow(const std::string& ciphers);
 
   /**
-   * Set default ciphers to be used in SSL handshake process.
+   * Set default TLS 1.2 and below ciphers to be used in SSL handshake process.
    */
-
   template <typename Iterator>
   void setCipherList(Iterator ibegin, Iterator iend) {
     if (ibegin != iend) {
@@ -190,20 +188,18 @@ class SSLContext {
   }
 
   /**
-   * Sets the signature algorithms to be used during SSL negotiation
-   * for TLS1.2+.
+   * Low-level method that attempts to set the provided signature
+   * algorithms on the SSL_CTX object for TLS1.2+,
+   * and throws if something goes wrong.
    */
+  virtual void setSigAlgsOrThrow(const std::string& sigAlgs);
 
   template <typename Iterator>
   void setSignatureAlgorithms(Iterator ibegin, Iterator iend) {
     if (ibegin != iend) {
-#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
       std::string opensslSigAlgsList;
       join(":", ibegin, iend, opensslSigAlgsList);
-      if (!SSL_CTX_set1_sigalgs_list(ctx_, opensslSigAlgsList.c_str())) {
-        throw std::runtime_error("SSL_CTX_set1_sigalgs_list " + getErrors());
-      }
-#endif
+      setSigAlgsOrThrow(opensslSigAlgsList);
     }
   }
 
@@ -508,9 +504,7 @@ class SSLContext {
   /**
    * Gets the underlying SSL_CTX for advanced usage
    */
-  SSL_CTX* getSSLCtx() const {
-    return ctx_;
-  }
+  SSL_CTX* getSSLCtx() const { return ctx_; }
 
   /**
    * Examine OpenSSL's error stack, and return a string description of the
@@ -520,12 +514,8 @@ class SSLContext {
    */
   static std::string getErrors(int errnoCopy);
 
-  bool checkPeerName() {
-    return checkPeerName_;
-  }
-  std::string peerFixedName() {
-    return peerFixedName_;
-  }
+  bool checkPeerName() { return checkPeerName_; }
+  std::string peerFixedName() { return peerFixedName_; }
 
 #if defined(SSL_MODE_HANDSHAKE_CUTTHROUGH)
   /**
@@ -548,9 +538,7 @@ class SSLContext {
     sslAcceptRunner_ = std::move(runner);
   }
 
-  const SSLAcceptRunner* sslAcceptRunner() {
-    return sslAcceptRunner_.get();
-  }
+  const SSLAcceptRunner* sslAcceptRunner() { return sslAcceptRunner_.get(); }
 
   /**
    * Helper to match a hostname versus a pattern.
@@ -565,12 +553,33 @@ class SSLContext {
   void enableTLS13();
 
   /**
+   * Disable TLS 1.3 in OpenSSL versions that support it.
+   */
+  void disableTLS13();
+
+  /**
    * Get SSLContext from the ex data of a SSL_CTX.
    */
   static SSLContext* getFromSSLCtx(const SSL_CTX* ctx);
 
   void setSessionLifecycleCallbacks(
       std::unique_ptr<SessionLifecycleCallbacks> cb);
+
+#if FOLLY_OPENSSL_PREREQ(1, 1, 1)
+  /**
+   * Set the TLS 1.3 ciphersuites to be used in the SSL handshake, in
+   * order of preference.
+   * Throws if unsuccessful.
+   */
+  void setCiphersuitesOrThrow(const std::string& ciphersuites);
+
+  /**
+   * Enables/disables non-DHE (Ephemeral Diffie-Hellman) PSK key
+   * exchange for TLS 1.3 resumption. Note that this key exchange
+   * mode gives up forward secrecy on the resumed session.
+   */
+  void setAllowNoDheKex(bool flag);
+#endif
 
   [[deprecated("Use folly::ssl::init")]] static void initializeOpenSSL();
 

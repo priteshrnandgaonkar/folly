@@ -14,12 +14,11 @@
  * limitations under the License.
  */
 
-#include <folly/Format.h>
-
 #include <glog/logging.h>
 
 #include <folly/FBVector.h>
 #include <folly/FileUtil.h>
+#include <folly/Format.h>
 #include <folly/Portability.h>
 #include <folly/dynamic.h>
 #include <folly/json.h>
@@ -45,9 +44,7 @@ TEST(FormatOther, file) {
     {
       FILE* fp = fdopen(fds[1], "wb");
       PCHECK(fp);
-      SCOPE_EXIT {
-        fclose(fp);
-      };
+      SCOPE_EXIT { fclose(fp); };
       writeTo(fp, format("{} {}", 42, 23)); // <= 512 bytes (PIPE_BUF)
     }
 

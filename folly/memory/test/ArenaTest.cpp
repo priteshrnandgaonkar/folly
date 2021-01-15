@@ -15,14 +15,16 @@
  */
 
 #include <folly/memory/Arena.h>
-#include <folly/Memory.h>
-#include <folly/portability/GFlags.h>
-#include <folly/portability/GTest.h>
 
 #include <set>
 #include <vector>
 
 #include <glog/logging.h>
+
+#include <folly/Memory.h>
+#include <folly/memory/Malloc.h>
+#include <folly/portability/GFlags.h>
+#include <folly/portability/GTest.h>
 
 using namespace folly;
 
@@ -41,16 +43,16 @@ TEST(Arena, SizeSanity) {
   allocatedItems.insert(ptr);
   minimum_size += requestedBlockSize;
   maximum_size += goodMallocSize(requestedBlockSize + SysArena::kBlockOverhead);
-  EXPECT_TRUE(arena.totalSize() >= minimum_size);
-  EXPECT_TRUE(arena.totalSize() <= maximum_size);
+  EXPECT_GE(arena.totalSize(), minimum_size);
+  EXPECT_LE(arena.totalSize(), maximum_size);
   VLOG(4) << minimum_size << " < " << arena.totalSize() << " < "
           << maximum_size;
 
   // Insert a larger element, size should be the same
   ptr = static_cast<size_t*>(arena.allocate(requestedBlockSize / 2));
   allocatedItems.insert(ptr);
-  EXPECT_TRUE(arena.totalSize() >= minimum_size);
-  EXPECT_TRUE(arena.totalSize() <= maximum_size);
+  EXPECT_GE(arena.totalSize(), minimum_size);
+  EXPECT_LE(arena.totalSize(), maximum_size);
   VLOG(4) << minimum_size << " < " << arena.totalSize() << " < "
           << maximum_size;
 
@@ -62,8 +64,8 @@ TEST(Arena, SizeSanity) {
   minimum_size += 10 * requestedBlockSize;
   maximum_size +=
       10 * goodMallocSize(requestedBlockSize + SysArena::kBlockOverhead);
-  EXPECT_TRUE(arena.totalSize() >= minimum_size);
-  EXPECT_TRUE(arena.totalSize() <= maximum_size);
+  EXPECT_GE(arena.totalSize(), minimum_size);
+  EXPECT_LE(arena.totalSize(), maximum_size);
   VLOG(4) << minimum_size << " < " << arena.totalSize() << " < "
           << maximum_size;
 
@@ -73,8 +75,8 @@ TEST(Arena, SizeSanity) {
   minimum_size += 10 * requestedBlockSize;
   maximum_size +=
       goodMallocSize(10 * requestedBlockSize + SysArena::kBlockOverhead);
-  EXPECT_TRUE(arena.totalSize() >= minimum_size);
-  EXPECT_TRUE(arena.totalSize() <= maximum_size);
+  EXPECT_GE(arena.totalSize(), minimum_size);
+  EXPECT_LE(arena.totalSize(), maximum_size);
   VLOG(4) << minimum_size << " < " << arena.totalSize() << " < "
           << maximum_size;
 
@@ -83,8 +85,8 @@ TEST(Arena, SizeSanity) {
     arena.deallocate(item, 0 /* unused */);
   }
   // The total size should be the same
-  EXPECT_TRUE(arena.totalSize() >= minimum_size);
-  EXPECT_TRUE(arena.totalSize() <= maximum_size);
+  EXPECT_GE(arena.totalSize(), minimum_size);
+  EXPECT_LE(arena.totalSize(), maximum_size);
   VLOG(4) << minimum_size << " < " << arena.totalSize() << " < "
           << maximum_size;
 }
@@ -104,27 +106,27 @@ TEST(Arena, BytesUsedSanity) {
   arena.allocate(smallChunkSize);
   bytesUsed += 2 * smallChunkSize;
   EXPECT_EQ(arena.bytesUsed(), bytesUsed);
-  EXPECT_TRUE(arena.totalSize() >= blockSize);
-  EXPECT_TRUE(arena.totalSize() <= 2 * blockSize);
+  EXPECT_GE(arena.totalSize(), blockSize);
+  EXPECT_LE(arena.totalSize(), 2 * blockSize);
 
   // Insert big chunk, should still fit in one block
   arena.allocate(bigChunkSize);
   bytesUsed += bigChunkSize;
   EXPECT_EQ(arena.bytesUsed(), bytesUsed);
-  EXPECT_TRUE(arena.totalSize() >= blockSize);
-  EXPECT_TRUE(arena.totalSize() <= 2 * blockSize);
+  EXPECT_GE(arena.totalSize(), blockSize);
+  EXPECT_LE(arena.totalSize(), 2 * blockSize);
 
   // Insert big chunk once more, should trigger new block allocation
   arena.allocate(bigChunkSize);
   bytesUsed += bigChunkSize;
   EXPECT_EQ(arena.bytesUsed(), bytesUsed);
-  EXPECT_TRUE(arena.totalSize() >= 2 * blockSize);
-  EXPECT_TRUE(arena.totalSize() <= 3 * blockSize);
+  EXPECT_GE(arena.totalSize(), 2 * blockSize);
+  EXPECT_LE(arena.totalSize(), 3 * blockSize);
 
   // Test that bytesUsed() accounts for alignment
   static const size_t tinyChunkSize = 7;
   arena.allocate(tinyChunkSize);
-  EXPECT_TRUE(arena.bytesUsed() >= bytesUsed + tinyChunkSize);
+  EXPECT_GE(arena.bytesUsed(), bytesUsed + tinyChunkSize);
   size_t delta = arena.bytesUsed() - bytesUsed;
   EXPECT_EQ(delta & (delta - 1), 0);
 }
@@ -216,10 +218,44 @@ TEST(Arena, Clear) {
     }
 
     EXPECT_EQ(arena.bytesUsed(), bytesUsed);
-    EXPECT_GT(arena.totalSize(), totalSize);
+    EXPECT_EQ(arena.totalSize(), totalSize);
 
     arena.clear();
   }
+}
+
+TEST(Arena, ClearAfterLarge) {
+  constexpr size_t blockSize = 1024;
+  constexpr size_t mult = 10;
+  SysArena arena(blockSize);
+  EXPECT_EQ(0, arena.bytesUsed());
+  arena.allocate(blockSize * mult);
+  EXPECT_EQ(blockSize * mult, arena.bytesUsed());
+  arena.clear();
+  EXPECT_EQ(0, arena.bytesUsed());
+}
+
+TEST(Arena, Merge) {
+  constexpr size_t blockSize = 1024;
+  size_t blockAllocSize = goodMallocSize(blockSize + SysArena::kBlockOverhead);
+
+  SysArena arena1(blockSize);
+  SysArena arena2(blockSize);
+
+  arena1.allocate(16);
+  arena2.allocate(32);
+
+  EXPECT_EQ(blockAllocSize + sizeof(SysArena), arena1.totalSize());
+  EXPECT_EQ(blockAllocSize + sizeof(SysArena), arena2.totalSize());
+  EXPECT_EQ(16, arena1.bytesUsed());
+  EXPECT_EQ(32, arena2.bytesUsed());
+
+  arena1.merge(std::move(arena2));
+
+  EXPECT_EQ(blockAllocSize * 2 + sizeof(SysArena), arena1.totalSize());
+  EXPECT_EQ(blockAllocSize * 0 + sizeof(SysArena), arena2.totalSize());
+  EXPECT_EQ(48, arena1.bytesUsed());
+  EXPECT_EQ(0, arena2.bytesUsed());
 }
 
 int main(int argc, char* argv[]) {

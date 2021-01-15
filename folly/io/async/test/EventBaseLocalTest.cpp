@@ -15,14 +15,13 @@
  */
 
 #include <folly/io/async/EventBaseLocal.h>
+
 #include <folly/portability/GTest.h>
 
 struct Foo {
   Foo(int n_, std::function<void()> dtorFn_)
       : n(n_), dtorFn(std::move(dtorFn_)) {}
-  ~Foo() {
-    dtorFn();
-  }
+  ~Foo() { dtorFn(); }
 
   int n;
   std::function<void()> dtorFn;

@@ -17,13 +17,15 @@
 #pragma once
 
 #include <assert.h>
-#include <folly/Portability.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <type_traits>
 #include <utility>
+
+#include <folly/Portability.h>
 
 namespace folly {
 
@@ -94,13 +96,9 @@ class DelayedDestructionBase {
       }
     }
 
-    DelayedDestructionBase* get() const {
-      return dd_;
-    }
+    DelayedDestructionBase* get() const { return dd_; }
 
-    explicit operator bool() const {
-      return dd_ != nullptr;
-    }
+    explicit operator bool() const { return dd_ != nullptr; }
 
    private:
     DelayedDestructionBase* dd_;
@@ -170,25 +168,17 @@ class DelayedDestructionBase {
       return *this;
     }
 
-    void reset(AliasType* dd = nullptr) {
-      *this = dd;
-    }
+    void reset(AliasType* dd = nullptr) { *this = dd; }
 
     AliasType* get() const {
       return static_cast<AliasType*>(DestructorGuard::get());
     }
 
-    AliasType& operator*() const {
-      return *get();
-    }
+    AliasType& operator*() const { return *get(); }
 
-    AliasType* operator->() const {
-      return get();
-    }
+    AliasType* operator->() const { return get(); }
 
-    explicit operator bool() const {
-      return DestructorGuard::operator bool();
-    }
+    explicit operator bool() const { return DestructorGuard::operator bool(); }
   };
 
  protected:
@@ -200,9 +190,7 @@ class DelayedDestructionBase {
    * This is primarily intended for debugging purposes, such as asserting
    * that an object has at least 1 guard.
    */
-  uint32_t getDestructorGuardCount() const {
-    return guardCount_;
-  }
+  uint32_t getDestructorGuardCount() const { return guardCount_; }
 
   /**
    * Implement onDelayedDestroy in subclasses.

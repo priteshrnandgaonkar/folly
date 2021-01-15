@@ -22,10 +22,11 @@
 #include <mutex>
 #include <queue>
 
+#include <glog/logging.h>
+
 #include <folly/Optional.h>
 #include <folly/detail/Futex.h>
 #include <folly/experimental/flat_combining/FlatCombining.h>
-#include <glog/logging.h>
 
 namespace folly {
 
@@ -288,7 +289,8 @@ template <
     typename T,
     typename PriorityQueue,
     typename Mutex,
-    template <typename> class Atom>
+    template <typename>
+    class Atom>
 template <typename Clock, typename Duration>
 inline bool
 FlatCombiningPriorityQueue<T, PriorityQueue, Mutex, Atom>::try_push_impl(
@@ -345,7 +347,8 @@ template <
     typename T,
     typename PriorityQueue,
     typename Mutex,
-    template <typename> class Atom>
+    template <typename>
+    class Atom>
 template <typename Clock, typename Duration>
 inline bool
 FlatCombiningPriorityQueue<T, PriorityQueue, Mutex, Atom>::try_pop_impl(
@@ -391,7 +394,8 @@ template <
     typename T,
     typename PriorityQueue,
     typename Mutex,
-    template <typename> class Atom>
+    template <typename>
+    class Atom>
 template <typename Clock, typename Duration>
 inline bool
 FlatCombiningPriorityQueue<T, PriorityQueue, Mutex, Atom>::try_peek_impl(

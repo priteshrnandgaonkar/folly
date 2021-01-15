@@ -15,6 +15,9 @@
  */
 
 #include <folly/Benchmark.h>
+
+#include <vector>
+
 #include <folly/executors/InlineExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/futures/Promise.h>
@@ -22,8 +25,6 @@
 #include <folly/portability/GFlags.h>
 #include <folly/portability/Semaphore.h>
 #include <folly/synchronization/Baton.h>
-
-#include <vector>
 
 using namespace folly;
 
@@ -342,12 +343,8 @@ BENCHMARK_DRAW_LINE();
 namespace {
 struct Bulky {
   explicit Bulky(std::string message) : message_(message) {}
-  std::string message() & {
-    return message_;
-  }
-  std::string&& message() && {
-    return std::move(message_);
-  }
+  std::string message() & { return message_; }
+  std::string&& message() && { return std::move(message_); }
 
  private:
   std::string message_;

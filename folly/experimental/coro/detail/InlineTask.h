@@ -18,7 +18,10 @@
 
 #include <folly/ScopeGuard.h>
 #include <folly/Try.h>
+#include <folly/experimental/coro/WithAsyncStack.h>
 #include <folly/experimental/coro/detail/Malloc.h>
+#include <folly/lang/Assume.h>
+#include <folly/tracing/AsyncStack.h>
 
 #include <cassert>
 #include <experimental/coroutine>
@@ -45,9 +48,7 @@ class InlineTask;
 
 class InlineTaskPromiseBase {
   struct FinalAwaiter {
-    bool await_ready() noexcept {
-      return false;
-    }
+    bool await_ready() noexcept { return false; }
 
     template <typename Promise>
     std::experimental::coroutine_handle<> await_suspend(
@@ -76,13 +77,9 @@ class InlineTaskPromiseBase {
     ::folly_coro_async_free(ptr, size);
   }
 
-  std::experimental::suspend_always initial_suspend() noexcept {
-    return {};
-  }
+  std::experimental::suspend_always initial_suspend() noexcept { return {}; }
 
-  auto final_suspend() noexcept {
-    return FinalAwaiter{};
-  }
+  auto final_suspend() noexcept { return FinalAwaiter{}; }
 
   void set_continuation(
       std::experimental::coroutine_handle<> continuation) noexcept {
@@ -130,9 +127,7 @@ class InlineTaskPromise : public InlineTaskPromiseBase {
         folly::exception_wrapper::from_exception_ptr(std::current_exception()));
   }
 
-  T result() {
-    return std::move(result_).value();
-  }
+  T result() { return std::move(result_).value(); }
 
  private:
   // folly::Try<T> doesn't support storing reference types so we store a
@@ -159,9 +154,7 @@ class InlineTaskPromise<void> : public InlineTaskPromiseBase {
         folly::exception_wrapper::from_exception_ptr(std::current_exception()));
   }
 
-  void result() {
-    return result_.value();
-  }
+  void result() { return result_.value(); }
 
  private:
   folly::Try<void> result_;
@@ -193,9 +186,7 @@ class InlineTask {
       }
     }
 
-    bool await_ready() noexcept {
-      return false;
-    }
+    bool await_ready() noexcept { return false; }
 
     handle_t await_suspend(
         std::experimental::coroutine_handle<> awaitingCoroutine) noexcept {
@@ -253,25 +244,79 @@ inline InlineTask<void> InlineTaskPromise<void>::get_return_object() noexcept {
 /// folly::coro::detail namespace to discourage general usage.
 struct InlineTaskDetached {
   class promise_type {
+    struct FinalAwaiter {
+      bool await_ready() noexcept { return false; }
+      void await_suspend(
+          std::experimental::coroutine_handle<promise_type> h) noexcept {
+        folly::deactivateAsyncStackFrame(h.promise().getAsyncFrame());
+        h.destroy();
+      }
+      [[noreturn]] void await_resume() noexcept { folly::assume_unreachable(); }
+    };
+
    public:
+    static void* operator new(std::size_t size) {
+      return ::folly_coro_async_malloc(size);
+    }
+
+    static void operator delete(void* ptr, std::size_t size) {
+      ::folly_coro_async_free(ptr, size);
+    }
+
+    promise_type() noexcept {
+      asyncFrame_.setParentFrame(folly::getDetachedRootAsyncStackFrame());
+    }
+
     InlineTaskDetached get_return_object() noexcept {
-      return {};
+      return InlineTaskDetached{
+          std::experimental::coroutine_handle<promise_type>::from_promise(
+              *this)};
     }
 
-    std::experimental::suspend_never initial_suspend() noexcept {
-      return {};
-    }
+    std::experimental::suspend_always initial_suspend() noexcept { return {}; }
 
-    std::experimental::suspend_never final_suspend() noexcept {
-      return {};
-    }
+    FinalAwaiter final_suspend() noexcept { return {}; }
 
     void return_void() noexcept {}
 
-    [[noreturn]] void unhandled_exception() noexcept {
-      std::terminate();
+    [[noreturn]] void unhandled_exception() noexcept { std::terminate(); }
+
+    template <typename Awaitable>
+    decltype(auto) await_transform(Awaitable&& awaitable) {
+      return folly::coro::co_withAsyncStack(
+          static_cast<Awaitable&&>(awaitable));
     }
+
+    folly::AsyncStackFrame& getAsyncFrame() noexcept { return asyncFrame_; }
+
+   private:
+    folly::AsyncStackFrame asyncFrame_;
   };
+
+  InlineTaskDetached(InlineTaskDetached&& other) noexcept
+      : coro_(std::exchange(other.coro_, {})) {}
+
+  ~InlineTaskDetached() {
+    if (coro_) {
+      coro_.destroy();
+    }
+  }
+
+  FOLLY_NOINLINE void start() noexcept {
+    start(FOLLY_ASYNC_STACK_RETURN_ADDRESS());
+  }
+
+  void start(void* returnAddress) noexcept {
+    coro_.promise().getAsyncFrame().setReturnAddress(returnAddress);
+    folly::resumeCoroutineWithNewAsyncStackRoot(std::exchange(coro_, {}));
+  }
+
+ private:
+  explicit InlineTaskDetached(
+      std::experimental::coroutine_handle<promise_type> h) noexcept
+      : coro_(h) {}
+
+  std::experimental::coroutine_handle<promise_type> coro_;
 };
 
 } // namespace detail

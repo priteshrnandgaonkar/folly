@@ -15,6 +15,7 @@
  */
 
 #include <folly/experimental/io/SimpleAsyncIO.h>
+
 #include <folly/String.h>
 #if __has_include(<folly/experimental/io/AsyncIO.h>) && __has_include(<libaio.h>)
 #define AIO_SUPPORTED
@@ -25,7 +26,7 @@
 #include <folly/experimental/io/IoUring.h>
 #endif
 
-#if !defined(AIO_SUPPORTED) && !defined(IOURING_SUPORTED)
+#if !defined(AIO_SUPPORTED) && !defined(IOURING_SUPPORTED)
 #error "Cannot build without at least one of AsyncIO.h and IoUring.h"
 #endif
 

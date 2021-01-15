@@ -62,9 +62,7 @@ struct InvokeResultWrapperBase {
   static T wrapResult(F fn) {
     return T(fn());
   }
-  static T wrapException(exception_wrapper&& e) {
-    return T(std::move(e));
-  }
+  static T wrapException(exception_wrapper&& e) { return T(std::move(e)); }
 };
 template <typename T>
 struct InvokeResultWrapper : InvokeResultWrapperBase<Try<T>> {};
@@ -156,9 +154,7 @@ class CoreCallbackState {
   }
 
  private:
-  bool before_barrier() const noexcept {
-    return !promise_.isFulfilled();
-  }
+  bool before_barrier() const noexcept { return !promise_.isFulfilled(); }
 
   union {
     DF func_;
@@ -482,12 +478,15 @@ FutureBase<T>::thenImplementation(
 class WaitExecutor final : public folly::Executor {
  public:
   void add(Func func) override {
-    auto wQueue = queue_.wlock();
-    if (wQueue->detached) {
-      return;
+    bool empty;
+    {
+      auto wQueue = queue_.wlock();
+      if (wQueue->detached) {
+        return;
+      }
+      empty = wQueue->funcs.empty();
+      wQueue->funcs.push_back(std::move(func));
     }
-    bool empty = wQueue->funcs.empty();
-    wQueue->funcs.push_back(std::move(func));
     if (empty) {
       baton_.post();
     }
@@ -571,12 +570,8 @@ struct WindowFakeVector {
 
   WindowFakeVector(size_t size) : size_(size) {}
 
-  size_t operator[](const size_t index) const {
-    return index;
-  }
-  size_t size() const {
-    return size_;
-  }
+  size_t operator[](const size_t index) const { return index; }
+  size_t size() const { return size_; }
 
  private:
   size_t size_;
@@ -1366,9 +1361,7 @@ SemiFuture<std::tuple<Try<typename remove_cvref_t<Fs>::value_type>...>>
 collectAll(Fs&&... fs) {
   using Result = std::tuple<Try<typename remove_cvref_t<Fs>::value_type>...>;
   struct Context {
-    ~Context() {
-      p.setValue(std::move(results));
-    }
+    ~Context() { p.setValue(std::move(results)); }
     Promise<Result> p;
     Result results;
   };
@@ -1469,9 +1462,7 @@ collect(InputIterator first, InputIterator last) {
   using T = typename F::value_type;
 
   struct Context {
-    explicit Context(size_t n) : result(n) {
-      finalResult.reserve(n);
-    }
+    explicit Context(size_t n) : result(n) { finalResult.reserve(n); }
     ~Context() {
       if (!threw.load(std::memory_order_relaxed)) {
         // map Optional<T> -> T
@@ -1810,9 +1801,9 @@ window(Executor::KeepAlive<> executor, Collection input, F func, size_t n) {
     static void spawn(std::shared_ptr<WindowContext> ctx) {
       size_t i = ctx->i.fetch_add(1, std::memory_order_relaxed);
       if (i < ctx->input.size()) {
-        auto fut = makeSemiFutureWith(
-                       [&] { return ctx->func(std::move(ctx->input[i])); })
-                       .via(ctx->executor.get());
+        auto fut = makeSemiFutureWith([&] {
+                     return ctx->func(std::move(ctx->input[i]));
+                   }).via(ctx->executor.get());
 
         fut.setCallback_([ctx = std::move(ctx), i](
                              Executor::KeepAlive<>&&, Try<Result>&& t) mutable {
@@ -1891,9 +1882,7 @@ SemiFuture<T> unorderedReduceSemiFuture(It first, It last, T initial, F func) {
   };
 
   struct Fulfill {
-    void operator()(Promise<T>&& p, T&& v) const {
-      p.setValue(std::move(v));
-    }
+    void operator()(Promise<T>&& p, T&& v) const { p.setValue(std::move(v)); }
     void operator()(Promise<T>&& p, Future<T>&& f) const {
       f.setCallback_(
           [p = std::move(p)](Executor::KeepAlive<>&&, Try<T>&& t) mutable {
@@ -2531,6 +2520,17 @@ void detachOn(folly::Executor::KeepAlive<> exec, folly::SemiFuture<T>&& fut) {
 template <class T>
 void detachOnGlobalCPUExecutor(folly::SemiFuture<T>&& fut) {
   detachOn(folly::getGlobalCPUExecutor(), std::move(fut));
+}
+
+template <class T>
+void maybeDetachOnGlobalExecutorAfter(
+    HighResDuration dur,
+    folly::SemiFuture<T>&& fut) {
+  sleep(dur).toUnsafeFuture().thenValue([fut = std::move(fut)](auto&&) mutable {
+    if (auto ptr = folly::detail::tryGetImmutableCPUPtr()) {
+      detachOn(folly::getKeepAliveToken(ptr.get()), std::move(fut));
+    }
+  });
 }
 
 template <class T>

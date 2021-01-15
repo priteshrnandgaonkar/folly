@@ -64,14 +64,12 @@ struct ConstIntervalFunctor {
     }
   }
 
-  microseconds operator()() const {
-    return constInterval;
-  }
+  microseconds operator()() const { return constInterval; }
 };
 
 struct PoissonDistributionFunctor {
   std::default_random_engine generator;
-  std::poisson_distribution<int> poissonRandom;
+  std::poisson_distribution<microseconds::rep> poissonRandom;
 
   explicit PoissonDistributionFunctor(microseconds meanPoissonUsec)
       : poissonRandom(meanPoissonUsec.count()) {
@@ -82,9 +80,7 @@ struct PoissonDistributionFunctor {
     }
   }
 
-  microseconds operator()() {
-    return microseconds(poissonRandom(generator));
-  }
+  microseconds operator()() { return microseconds(poissonRandom(generator)); }
 };
 
 struct UniformDistributionFunctor {
@@ -106,9 +102,7 @@ struct UniformDistributionFunctor {
     }
   }
 
-  microseconds operator()() {
-    return microseconds(dist(generator));
-  }
+  microseconds operator()() { return microseconds(dist(generator)); }
 };
 
 } // namespace

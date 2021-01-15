@@ -15,11 +15,11 @@
  */
 
 #include <folly/io/async/SSLContext.h>
+
 #include <folly/FileUtil.h>
+#include <folly/io/async/test/SSLUtil.h>
 #include <folly/portability/GTest.h>
 #include <folly/ssl/OpenSSLPtrTypes.h>
-
-#include <folly/io/async/test/SSLUtil.h>
 
 using namespace std;
 
@@ -29,11 +29,17 @@ class SSLContextTest : public testing::Test {
  public:
   SSLContext ctx;
   void verifySSLCipherList(const vector<string>& ciphers);
+  void verifySSLCiphersuites(const vector<string>& ciphersuites);
 };
 
 void SSLContextTest::verifySSLCipherList(const vector<string>& ciphers) {
   ssl::SSLUniquePtr ssl(ctx.createSSL());
   EXPECT_EQ(ciphers, test::getNonTLS13CipherList(ssl.get()));
+}
+
+void SSLContextTest::verifySSLCiphersuites(const vector<string>& ciphersuites) {
+  ssl::SSLUniquePtr ssl(ctx.createSSL());
+  EXPECT_EQ(ciphersuites, test::getTLS13Ciphersuites(ssl.get()));
 }
 
 TEST_F(SSLContextTest, TestSetCipherString) {
@@ -190,4 +196,39 @@ TEST_F(SSLContextTest, TestGetFromSSLCtx) {
   SSL_CTX_free(randomCtx);
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
+TEST_F(SSLContextTest, TestInvalidSigAlgThrows) {
+  {
+    SSLContext tmpCtx;
+    EXPECT_THROW(tmpCtx.setSigAlgsOrThrow(""), std::runtime_error);
+  }
+
+  {
+    SSLContext tmpCtx;
+    EXPECT_THROW(
+        tmpCtx.setSigAlgsOrThrow("rsa_pss_rsae_sha512:ECDSA+SHA256:RSA+HA256"),
+        std::runtime_error);
+  }
+}
+#endif
+
+#if FOLLY_OPENSSL_PREREQ(1, 1, 1)
+TEST_F(SSLContextTest, TestSetCiphersuites) {
+  std::vector<std::string> ciphersuitesList{
+      "TLS_AES_128_CCM_SHA256",
+      "TLS_AES_128_GCM_SHA256",
+  };
+  std::string ciphersuites;
+  folly::join(":", ciphersuitesList, ciphersuites);
+  ctx.setCiphersuitesOrThrow(ciphersuites);
+
+  verifySSLCiphersuites(ciphersuitesList);
+}
+
+TEST_F(SSLContextTest, TestSetInvalidCiphersuite) {
+  EXPECT_THROW(
+      ctx.setCiphersuitesOrThrow("ECDHE-ECDSA-AES256-GCM-SHA384"),
+      std::runtime_error);
+}
+#endif // FOLLY_OPENSSL_PREREQ(1, 1, 1)
 } // namespace folly

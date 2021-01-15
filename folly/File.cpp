@@ -16,9 +16,10 @@
 
 #include <folly/File.h>
 
+#include <fmt/core.h>
+
 #include <folly/Exception.h>
 #include <folly/FileUtil.h>
-#include <folly/Format.h>
 #include <folly/ScopeGuard.h>
 #include <folly/portability/Fcntl.h>
 #include <folly/portability/SysFile.h>
@@ -41,8 +42,7 @@ File::File(const char* name, int flags, mode_t mode)
     : fd_(::open(name, flags, mode)), ownsFd_(false) {
   if (fd_ == -1) {
     throwSystemError(
-        folly::format("open(\"{}\", {:#o}, 0{:#o}) failed", name, flags, mode)
-            .fbstr());
+        fmt::format("open(\"{}\", {:#o}, 0{:#o}) failed", name, flags, mode));
   }
   ownsFd_ = true;
 }
@@ -76,9 +76,7 @@ File::~File() {
   // make a temp file with tmpfile(), dup the fd, then return it in a File.
   FILE* tmpFile = tmpfile();
   checkFopenError(tmpFile, "tmpfile() failed");
-  SCOPE_EXIT {
-    fclose(tmpFile);
-  };
+  SCOPE_EXIT { fclose(tmpFile); };
 
   int fd = ::dup(fileno(tmpFile));
   checkUnixError(fd, "dup() failed");

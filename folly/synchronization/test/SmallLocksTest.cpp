@@ -20,6 +20,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -99,9 +100,7 @@ template <class T>
 struct PslTest {
   PicoSpinLock<T> lock;
 
-  PslTest() {
-    lock.init();
-  }
+  PslTest() { lock.init(); }
 
   void doTest() {
     using UT = typename std::make_unsigned<T>::type;
@@ -133,9 +132,7 @@ void doPslTest() {
 #endif
 
 struct TestClobber {
-  TestClobber() {
-    lock_.init();
-  }
+  TestClobber() { lock_.init(); }
 
   void go() {
     std::lock_guard<MicroSpinLock> g(lock_);
@@ -333,6 +330,52 @@ TEST(SmallLocks, MicroLockTryLock) {
   lock.unlock();
 }
 
+TEST(SmallLocks, MicroLockSlotsAsData) {
+  MicroLock lock;
+  lock.init();
+  EXPECT_EQ(lock.load(std::memory_order_relaxed), 0);
+
+  lock.lock(0);
+  EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b00000001);
+
+  EXPECT_EQ(lock.lockAndLoad(1), 0b00000101);
+
+  // Mask out only the slot that is being unlocked
+  lock.unlockAndStore(
+      1, ~MicroLock::slotMask<0>(), std::numeric_limits<uint8_t>::max());
+  EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b11110001);
+
+  lock.init();
+  lock.lock(0);
+  {
+    MicroLock::LockGuardWithDataSlots<2, 3> guard(lock, 1);
+    EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b00000101);
+    EXPECT_EQ(guard.loadedValue(), 0);
+    guard.storeValue(std::numeric_limits<uint8_t>::max());
+    EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b00000101);
+  }
+  // Only slots 2 and 3 should be set
+  EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b11110001);
+
+  {
+    MicroLock::LockGuardWithDataSlots<2> guard(lock, 1);
+    EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b11110101);
+    EXPECT_EQ(guard.loadedValue(), 0b00110000);
+    guard.storeValue(0);
+    EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b11110101);
+  }
+  // Only slot 2 should be unset
+  EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b11000001);
+
+  {
+    MicroLock::LockGuardWithDataSlots<3> guard(lock, 1);
+    EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b11000101);
+    EXPECT_EQ(guard.loadedValue(), 0b11000000);
+  }
+  EXPECT_EQ(lock.load(std::memory_order_relaxed), 0b11000001);
+  // Do not modify unless something is stored
+}
+
 namespace {
 template <typename Mutex, typename Duration>
 void simpleStressTest(Duration duration, int numThreads) {
@@ -389,9 +432,7 @@ class MutexWrapper {
     while (!mutex_.try_lock()) {
     }
   }
-  void unlock() {
-    mutex_.unlock();
-  }
+  void unlock() { mutex_.unlock(); }
 
   Mutex mutex_;
 };

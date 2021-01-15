@@ -16,15 +16,14 @@
 
 #include <folly/io/async/DelayedDestruction.h>
 
-#include <folly/portability/GTest.h>
 #include <glog/logging.h>
+
+#include <folly/portability/GTest.h>
 
 using namespace folly;
 
 class DeleteGuarder : public DelayedDestruction {
-  ~DeleteGuarder() override {
-    doFoo();
-  }
+  ~DeleteGuarder() override { doFoo(); }
 
   void doFoo() {
     DelayedDestructionBase::DestructorGuard dg(this);

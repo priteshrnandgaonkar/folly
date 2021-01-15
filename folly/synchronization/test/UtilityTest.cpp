@@ -15,10 +15,11 @@
  */
 
 #include <folly/synchronization/Utility.h>
-#include <folly/Utility.h>
-#include <folly/portability/GTest.h>
 
 #include <type_traits>
+
+#include <folly/Utility.h>
+#include <folly/portability/GTest.h>
 
 class UtilityTest : public testing::Test {};
 
@@ -50,12 +51,8 @@ class MockMutex {
     return try_lock();
   }
 
-  void lock_shared() {
-    lock();
-  }
-  void unlock_shared() {
-    unlock();
-  }
+  void lock_shared() { lock(); }
+  void unlock_shared() { unlock(); }
 
   bool locked_{false};
 };

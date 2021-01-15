@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <map>
+#include <optional>
 #include <unordered_map>
 
 #include <folly/Traits.h>
@@ -96,6 +97,14 @@ TEST(MapUtil, get_optional_path_mixed) {
   EXPECT_FALSE(get_optional(m, "a", 1, "c"));
   EXPECT_TRUE(get_optional(m, "a", 1));
   EXPECT_TRUE(get_optional(m, "a"));
+}
+
+TEST(MapUtil, get_optional_std) {
+  std::map<int, int> m;
+  m[1] = 2;
+  EXPECT_TRUE(get_optional<std::optional>(m, 1).has_value());
+  EXPECT_EQ(2, get_optional<std::optional>(m, 1).value());
+  EXPECT_FALSE(get_optional<std::optional>(m, 2).has_value());
 }
 
 TEST(MapUtil, get_ref_default) {
@@ -279,15 +288,9 @@ namespace {
 
 class TestConstruction {
  public:
-  TestConstruction() {
-    EXPECT_TRUE(false);
-  }
-  TestConstruction(TestConstruction&&) {
-    EXPECT_TRUE(false);
-  }
-  TestConstruction(const TestConstruction&) {
-    EXPECT_TRUE(false);
-  }
+  TestConstruction() { EXPECT_TRUE(false); }
+  TestConstruction(TestConstruction&&) { EXPECT_TRUE(false); }
+  TestConstruction(const TestConstruction&) { EXPECT_TRUE(false); }
 
   explicit TestConstruction(std::string&& string)
       : string_{std::move(string)} {}

@@ -216,6 +216,15 @@ void SSLContext::setCiphersOrThrow(const std::string& ciphers) {
   providedCiphersString_ = ciphers;
 }
 
+void SSLContext::setSigAlgsOrThrow(const std::string& sigalgs) {
+#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
+  int rc = SSL_CTX_set1_sigalgs_list(ctx_, sigalgs.c_str());
+  if (rc == 0) {
+    throw std::runtime_error("SSL_CTX_set1_sigalgs_list " + getErrors());
+  }
+#endif
+}
+
 void SSLContext::setVerificationOption(
     const SSLContext::SSLVerifyPeerEnum& verifyPeer) {
   CHECK(verifyPeer != SSLVerifyPeerEnum::USE_CTX); // dont recurse
@@ -700,8 +709,14 @@ std::string SSLContext::getErrors(int errnoCopy) {
 }
 
 void SSLContext::enableTLS13() {
-#if FOLLY_OPENSSL_IS_110
+#if FOLLY_OPENSSL_PREREQ(1, 1, 0)
   SSL_CTX_set_max_proto_version(ctx_, 0);
+#endif
+}
+
+void SSLContext::disableTLS13() {
+#if FOLLY_OPENSSL_PREREQ(1, 1, 0)
+  SSL_CTX_set_max_proto_version(ctx_, TLS1_2_VERSION);
 #endif
 }
 
@@ -761,6 +776,24 @@ void SSLContext::setSessionLifecycleCallbacks(
     std::unique_ptr<SessionLifecycleCallbacks> cb) {
   sessionLifecycleCallbacks_ = std::move(cb);
 }
+
+#if FOLLY_OPENSSL_PREREQ(1, 1, 1)
+void SSLContext::setCiphersuitesOrThrow(const std::string& ciphersuites) {
+  auto rc = SSL_CTX_set_ciphersuites(ctx_, ciphersuites.c_str());
+  if (rc == 0) {
+    throw std::runtime_error("SSL_CTX_set_ciphersuites: " + getErrors());
+  }
+}
+
+void SSLContext::setAllowNoDheKex(bool flag) {
+  auto opt = SSL_OP_ALLOW_NO_DHE_KEX;
+  if (flag) {
+    SSL_CTX_set_options(ctx_, opt);
+  } else {
+    SSL_CTX_clear_options(ctx_, opt);
+  }
+}
+#endif // FOLLY_OPENSSL_PREREQ(1, 1, 1)
 
 std::ostream& operator<<(std::ostream& os, const PasswordCollector& collector) {
   os << collector.describe();

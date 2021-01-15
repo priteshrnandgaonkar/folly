@@ -7,6 +7,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -114,6 +115,10 @@ class ProjectCmdBase(SubCmd):
             elif len(parts) == 1:
                 project = args.project
                 path = parts[0]
+            # On Windows path contains colon, e.g. C:\open
+            elif os.name == "nt" and len(parts) == 3:
+                project = parts[0]
+                path = parts[1] + ":" + parts[2]
             else:
                 raise UsageError(
                     "invalid %s argument; too many ':' characters: %s" % (arg_type, arg)
@@ -207,8 +212,8 @@ class ProjectCmdBase(SubCmd):
 
 
 class CachedProject(object):
-    """ A helper that allows calling the cache logic for a project
-    from both the build and the fetch code """
+    """A helper that allows calling the cache logic for a project
+    from both the build and the fetch code"""
 
     def __init__(self, cache, loader, m):
         self.m = m
@@ -496,6 +501,12 @@ class BuildCmd(ProjectCmdBase):
                     if dep_build:
                         sources_changed = True
 
+                extra_cmake_defines = (
+                    json.loads(args.extra_cmake_defines)
+                    if args.extra_cmake_defines
+                    else {}
+                )
+
                 if sources_changed or reconfigure or not os.path.exists(built_marker):
                     if os.path.exists(built_marker):
                         os.unlink(built_marker)
@@ -508,6 +519,7 @@ class BuildCmd(ProjectCmdBase):
                         ctx,
                         loader,
                         final_install_prefix=loader.get_project_install_prefix(m),
+                        extra_cmake_defines=extra_cmake_defines,
                     )
                     builder.build(install_dirs, reconfigure=reconfigure)
 
@@ -634,6 +646,14 @@ class BuildCmd(ProjectCmdBase):
         )
         parser.add_argument(
             "--schedule-type", help="Indicates how the build was activated"
+        )
+        parser.add_argument(
+            "--extra-cmake-defines",
+            help=(
+                "Input json map that contains extra cmake defines to be used "
+                "when compiling the current project and all its deps. "
+                'e.g: \'{"CMAKE_CXX_FLAGS": "--bla"}\''
+            ),
         )
 
 
@@ -826,10 +846,10 @@ jobs:
                 # coupled with the boost manifest
                 # This is the unusual syntax for setting an env var for the rest of
                 # the steps in a workflow:
-                # https://help.github.com/en/actions/reference/workflow-commands-for-github-actions#setting-an-environment-variable
+                # https://github.blog/changelog/2020-10-01-github-actions-deprecating-set-env-and-add-path-commands/
                 out.write("    - name: Export boost environment\n")
                 out.write(
-                    '      run: "echo ::set-env name=BOOST_ROOT::%BOOST_ROOT_1_69_0%"\n'
+                    '      run: "echo BOOST_ROOT=%BOOST_ROOT_1_69_0% >> %GITHUB_ENV%"\n'
                 )
                 out.write("      shell: cmd\n")
 
@@ -982,6 +1002,11 @@ def parse_args():
         help="Allow satisfying third party deps from installed system packages",
         action="store_true",
         default=False,
+    )
+    add_common_arg(
+        "--lfs-path",
+        help="Provide a parent directory for lfs when fbsource is unavailable",
+        default=None,
     )
 
     ap = argparse.ArgumentParser(

@@ -16,9 +16,9 @@
 
 #pragma once
 
-#include <folly/logging/AsyncLogWriter.h>
-
 #include <vector>
+
+#include <folly/logging/AsyncLogWriter.h>
 
 namespace folly {
 /**
@@ -50,9 +50,7 @@ class AsyncFileWriter : public AsyncLogWriter {
   /**
    * Get the output file.
    */
-  const folly::File& getFile() const {
-    return file_;
-  }
+  const folly::File& getFile() const { return file_; }
 
  private:
   void writeToFile(

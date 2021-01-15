@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
+#include <memory>
+
 #include <folly/futures/Future.h>
 #include <folly/portability/GTest.h>
-
-#include <memory>
 
 using namespace folly;
 
@@ -26,9 +26,7 @@ class TestData : public RequestData {
   explicit TestData(int data) : data_(data) {}
   ~TestData() override {}
 
-  bool hasCallback() override {
-    return false;
-  }
+  bool hasCallback() override { return false; }
 
   int data_;
 };

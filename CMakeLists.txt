@@ -38,7 +38,9 @@ set(CMAKE_MODULE_PATH
 
 # package information
 set(PACKAGE_NAME      "folly")
-set(PACKAGE_VERSION   "0.58.0-dev")
+if (NOT DEFINED PACKAGE_VERSION)
+  set(PACKAGE_VERSION   "0.58.0-dev")
+endif()
 set(PACKAGE_STRING    "${PACKAGE_NAME} ${PACKAGE_VERSION}")
 set(PACKAGE_TARNAME   "${PACKAGE_NAME}-${PACKAGE_VERSION}")
 set(PACKAGE_BUGREPORT "https://github.com/facebook/folly/issues")
@@ -158,13 +160,13 @@ REMOVE_MATCHES_FROM_LISTS(files hfiles
 list(REMOVE_ITEM files
   ${FOLLY_DIR}/experimental/JSONSchemaTester.cpp
   ${FOLLY_DIR}/experimental/io/HugePageUtil.cpp
+  ${FOLLY_DIR}/python/error.cpp
   ${FOLLY_DIR}/python/executor.cpp
   ${FOLLY_DIR}/python/fibers.cpp
   ${FOLLY_DIR}/python/GILAwareManualExecutor.cpp
   ${FOLLY_DIR}/cybld/folly/executor.cpp
 )
 list(REMOVE_ITEM hfiles
-  ${FOLLY_DIR}/python/executor.h
   ${FOLLY_DIR}/python/fibers.h
   ${FOLLY_DIR}/python/GILAwareManualExecutor.h
 )
@@ -335,6 +337,9 @@ add_library(folly_base OBJECT
   ${files} ${hfiles}
   ${CMAKE_CURRENT_BINARY_DIR}/folly/folly-config.h
 )
+if (BUILD_SHARED_LIBS)
+  set_property(TARGET folly_base PROPERTY POSITION_INDEPENDENT_CODE ON)
+endif()
 auto_source_group(folly ${FOLLY_DIR} ${files} ${hfiles})
 apply_folly_compile_options_to_target(folly_base)
 # Add the generated files to the correct source group.
@@ -375,6 +380,7 @@ option(PYTHON_EXTENSIONS
 add_library(folly
   $<TARGET_OBJECTS:folly_base>
 )
+set_property(TARGET folly PROPERTY VERSION ${PACKAGE_VERSION})
 apply_folly_compile_options_to_target(folly)
 target_compile_features(folly INTERFACE cxx_generic_lambdas)
 
@@ -385,6 +391,7 @@ add_library(folly_test_util
   ${FOLLY_DIR}/test/DeterministicSchedule.cpp
   ${FOLLY_DIR}/test/JsonTestUtil.cpp
 )
+set_property(TARGET folly_test_util PROPERTY VERSION ${PACKAGE_VERSION})
 target_link_libraries(folly_test_util
   PUBLIC
     ${BOOST_LIBRARIES}
@@ -513,6 +520,8 @@ if (BUILD_TESTS)
     ${FOLLY_DIR}/io/async/test/ScopedBoundPort.h
     ${FOLLY_DIR}/io/async/test/SocketPair.cpp
     ${FOLLY_DIR}/io/async/test/SocketPair.h
+    ${FOLLY_DIR}/io/async/test/SSLUtil.cpp
+    ${FOLLY_DIR}/io/async/test/SSLUtil.h
     ${FOLLY_DIR}/io/async/test/TestSSLServer.cpp
     ${FOLLY_DIR}/io/async/test/TestSSLServer.h
     ${FOLLY_DIR}/io/async/test/TimeUtil.cpp

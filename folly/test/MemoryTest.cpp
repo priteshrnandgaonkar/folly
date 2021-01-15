@@ -86,6 +86,12 @@ TEST(make_unique, compatible_with_std_make_unique) {
   make_unique<string>("hello, world");
 }
 
+TEST(to_shared_ptr_aliasing, example) {
+  auto sp = folly::copy_to_shared_ptr(std::tuple{3, 4});
+  auto a = folly::to_shared_ptr_aliasing(sp, &std::get<1>(*sp));
+  EXPECT_EQ(4, *a);
+}
+
 TEST(to_weak_ptr, example) {
   auto s = std::make_shared<int>(17);
   EXPECT_EQ(1, s.use_count());
@@ -479,9 +485,7 @@ struct ExpectingAlloc {
     return std::allocator<T>{}.allocate(n);
   }
 
-  void deallocate(T* p, std::size_t n) {
-    std::allocator<T>{}.deallocate(p, n);
-  }
+  void deallocate(T* p, std::size_t n) { std::allocator<T>{}.deallocate(p, n); }
 
   std::size_t expectedSize_;
   std::size_t expectedCount_;

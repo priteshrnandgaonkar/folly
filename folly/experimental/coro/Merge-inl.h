@@ -25,6 +25,7 @@
 #include <folly/experimental/coro/WithCancellation.h>
 #include <folly/experimental/coro/detail/Barrier.h>
 #include <folly/experimental/coro/detail/BarrierTask.h>
+#include <folly/experimental/coro/detail/CurrentAsyncFrame.h>
 #include <folly/experimental/coro/detail/Helpers.h>
 #include <exception>
 #include <memory>
@@ -73,8 +74,8 @@ AsyncGenerator<Reference, Value> merge(
             }
 
             // Publish the value.
-            state_->record = CallbackRecord<Reference>{callback_record_value,
-                                                       *std::move(item)};
+            state_->record = CallbackRecord<Reference>{
+                callback_record_value, *std::move(item)};
             state_->recordPublished.post();
 
             // Wait until the consumer is finished with it.
@@ -111,13 +112,15 @@ AsyncGenerator<Reference, Value> merge(
 
     detail::Barrier barrier{1};
 
+    auto& asyncFrame = co_await detail::co_current_async_stack_frame;
+
     exception_wrapper ex;
     try {
       while (auto item = co_await sources_.next()) {
         if (state->cancelSource.isCancellationRequested()) {
           break;
         }
-        makeWorkerTask(state, *std::move(item)).start(&barrier);
+        makeWorkerTask(state, *std::move(item)).start(&barrier, asyncFrame);
       }
     } catch (const std::exception& e) {
       ex = exception_wrapper{std::current_exception(), e};
@@ -135,7 +138,7 @@ AsyncGenerator<Reference, Value> merge(
             CallbackRecord<Reference>{callback_record_error, std::move(ex)};
         state->recordPublished.post();
       }
-    };
+    }
 
     // Wait for all worker tasks to finish consuming the entirety of their
     // input streams.
@@ -154,9 +157,7 @@ AsyncGenerator<Reference, Value> merge(
 
   auto state = std::make_shared<SharedState>(executor);
 
-  SCOPE_EXIT {
-    state->cancelSource.requestCancellation();
-  };
+  SCOPE_EXIT { state->cancelSource.requestCancellation(); };
 
   // Start a task that consumes the stream of input streams.
   makeConsumerTask(state, std::move(sources))
@@ -173,9 +174,7 @@ AsyncGenerator<Reference, Value> merge(
     }
     state->recordPublished.reset();
 
-    SCOPE_EXIT {
-      state->recordConsumed.post();
-    };
+    SCOPE_EXIT { state->recordConsumed.post(); };
 
     if (state->record.hasValue()) {
       // next value

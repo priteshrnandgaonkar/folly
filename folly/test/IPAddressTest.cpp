@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
+#include <folly/IPAddress.h>
+
 #include <sys/types.h>
 
 #include <string>
 
-#include <folly/Format.h>
-#include <folly/IPAddress.h>
+#include <fmt/core.h>
+
 #include <folly/MacAddress.h>
 #include <folly/String.h>
 #include <folly/container/BitIterator.h>
@@ -79,21 +81,11 @@ struct AddressFlags {
   AddressFlags(const std::string& addr, uint8_t version_, uint8_t flags_)
       : address(addr), flags(flags_), version(version_) {}
 
-  bool isLoopback() const {
-    return (flags & IS_LOCAL);
-  }
-  bool isNonroutable() const {
-    return (flags & IS_NONROUTABLE);
-  }
-  bool isPrivate() const {
-    return (flags & IS_PRIVATE);
-  }
-  bool isZero() const {
-    return (flags & IS_ZERO);
-  }
-  bool isLinkLocal() const {
-    return (flags & IS_LINK_LOCAL);
-  }
+  bool isLoopback() const { return (flags & IS_LOCAL); }
+  bool isNonroutable() const { return (flags & IS_NONROUTABLE); }
+  bool isPrivate() const { return (flags & IS_PRIVATE); }
+  bool isZero() const { return (flags & IS_ZERO); }
+  bool isLinkLocal() const { return (flags & IS_LINK_LOCAL); }
   bool isLinkLocalBroadcast() const {
     return (flags & IS_LINK_LOCAL_BROADCAST);
   }
@@ -670,7 +662,7 @@ TEST(IPaddress, toInverseArpaName) {
   EXPECT_EQ("1.0.0.10.in-addr.arpa", addr_ipv4.toInverseArpaName());
   IPAddressV6 addr_ipv6("2620:0000:1cfe:face:b00c:0000:0000:0003");
   EXPECT_EQ(
-      sformat(
+      fmt::format(
           "{}.ip6.arpa",
           "3.0.0.0.0.0.0.0.0.0.0.0.c.0.0.b.e.c.a.f.e.f.c.1.0.0.0.0.0.2.6.2"),
       addr_ipv6.toInverseArpaName());
@@ -682,7 +674,7 @@ TEST(IPaddress, fromInverseArpaName) {
       IPAddressV4::fromInverseArpaName("1.0.0.10.in-addr.arpa"));
   EXPECT_EQ(
       IPAddressV6("2620:0000:1cfe:face:b00c:0000:0000:0003"),
-      IPAddressV6::fromInverseArpaName(sformat(
+      IPAddressV6::fromInverseArpaName(fmt::format(
           "{}.ip6.arpa",
           "3.0.0.0.0.0.0.0.0.0.0.0.c.0.0.b.e.c.a.f.e.f.c.1.0.0.0.0.0.2.6.2")));
 }

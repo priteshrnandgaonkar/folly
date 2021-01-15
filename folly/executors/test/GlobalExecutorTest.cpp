@@ -15,6 +15,7 @@
  */
 
 #include <folly/executors/GlobalExecutor.h>
+
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/IOExecutor.h>
 #include <folly/portability/GTest.h>
@@ -84,12 +85,8 @@ TEST(GlobalExecutorTest, GlobalCPUExecutor) {
 TEST(GlobalExecutorTest, GlobalIOExecutor) {
   class DummyExecutor : public IOExecutor {
    public:
-    void add(Func) override {
-      count++;
-    }
-    folly::EventBase* getEventBase() override {
-      return nullptr;
-    }
+    void add(Func) override { count++; }
+    folly::EventBase* getEventBase() override { return nullptr; }
     int count{0};
   };
 

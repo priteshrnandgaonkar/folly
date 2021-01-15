@@ -15,7 +15,6 @@
  */
 
 #include <folly/small_vector.h>
-#include <folly/sorted_vector_types.h>
 
 #include <iostream>
 #include <iterator>
@@ -31,6 +30,7 @@
 #include <folly/Conv.h>
 #include <folly/Traits.h>
 #include <folly/portability/GTest.h>
+#include <folly/sorted_vector_types.h>
 
 using folly::small_vector;
 using namespace folly::small_vector_policy;
@@ -125,13 +125,9 @@ struct NontrivialType {
   static int ctored;
   explicit NontrivialType() : a(0) {}
 
-  /* implicit */ NontrivialType(int a_) : a(a_) {
-    ++ctored;
-  }
+  /* implicit */ NontrivialType(int a_) : a(a_) { ++ctored; }
 
-  NontrivialType(NontrivialType const& /* s */) {
-    ++ctored;
-  }
+  NontrivialType(NontrivialType const& /* s */) { ++ctored; }
 
   NontrivialType& operator=(NontrivialType const& o) {
     a = o.a;
@@ -192,20 +188,12 @@ int Thrower::alive = 0;
 // construction.
 struct NoncopyableCounter {
   static int alive;
-  NoncopyableCounter() {
-    ++alive;
-  }
-  ~NoncopyableCounter() {
-    --alive;
-  }
-  NoncopyableCounter(NoncopyableCounter&&) noexcept {
-    ++alive;
-  }
+  NoncopyableCounter() { ++alive; }
+  ~NoncopyableCounter() { --alive; }
+  NoncopyableCounter(NoncopyableCounter&&) noexcept { ++alive; }
   NoncopyableCounter(NoncopyableCounter const&) = delete;
   NoncopyableCounter& operator=(NoncopyableCounter const&) const = delete;
-  NoncopyableCounter& operator=(NoncopyableCounter&&) {
-    return *this;
-  }
+  NoncopyableCounter& operator=(NoncopyableCounter&&) { return *this; }
 };
 int NoncopyableCounter::alive = 0;
 
@@ -228,9 +216,7 @@ struct TestBasicGuarantee {
     }
   }
 
-  ~TestBasicGuarantee() {
-    throwCounter = 1000;
-  }
+  ~TestBasicGuarantee() { throwCounter = 1000; }
 
   template <class Operation>
   void operator()(int insertCount, Operation const& op) {
@@ -632,7 +618,7 @@ TEST(small_vector, NoHeap) {
 
   // Check max_size works right with various policy combinations.
   folly::small_vector<std::string, 32, uint32_t> v4;
-  EXPECT_EQ(v4.max_size(), (1ul << 31) - 1);
+  EXPECT_EQ(v4.max_size(), (1ul << 30) - 1);
 
   /*
    * Test that even when we ask for a small number inlined it'll still
@@ -655,9 +641,9 @@ TEST(small_vector, NoHeap) {
 
 TEST(small_vector, MaxSize) {
   folly::small_vector<int, 2, uint8_t> vec;
-  EXPECT_EQ(vec.max_size(), 127);
+  EXPECT_EQ(vec.max_size(), 63);
   folly::small_vector<int, 2, uint16_t> vec2;
-  EXPECT_EQ(vec2.max_size(), (1 << 15) - 1);
+  EXPECT_EQ(vec2.max_size(), (1 << 14) - 1);
 }
 
 TEST(small_vector, AllHeap) {
@@ -666,9 +652,7 @@ TEST(small_vector, AllHeap) {
     double a, b, c, d, e;
     int val;
     SomeObj(int val_) : val(val_) {}
-    bool operator==(SomeObj const& o) const {
-      return o.val == val;
-    }
+    bool operator==(SomeObj const& o) const { return o.val == val; }
   };
 
   folly::small_vector<SomeObj, 0> vec = {1};
@@ -937,15 +921,15 @@ TEST(small_vector, InputIterator) {
   std::istringstream is1(values);
   std::istringstream is2(values);
 
-  std::vector<int> stdV{std::istream_iterator<int>(is1),
-                        std::istream_iterator<int>()};
+  std::vector<int> stdV{
+      std::istream_iterator<int>(is1), std::istream_iterator<int>()};
   ASSERT_EQ(stdV.size(), expected.size());
   for (size_t i = 0; i < expected.size(); i++) {
     ASSERT_EQ(stdV[i], expected[i]);
   }
 
-  small_vector<int> smallV{std::istream_iterator<int>(is2),
-                           std::istream_iterator<int>()};
+  small_vector<int> smallV{
+      std::istream_iterator<int>(is2), std::istream_iterator<int>()};
   ASSERT_EQ(smallV.size(), expected.size());
   for (size_t i = 0; i < expected.size(); i++) {
     ASSERT_EQ(smallV[i], expected[i]);

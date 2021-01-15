@@ -215,9 +215,7 @@ class AsyncReader {
      * buffer, but the available data is always 16KB (max OpenSSL record size).
      */
 
-    virtual bool isBufferMovable() noexcept {
-      return false;
-    }
+    virtual bool isBufferMovable() noexcept { return false; }
 
     /**
      * Suggested buffer size, allocated for read operations,
@@ -274,6 +272,13 @@ class AsyncReader {
 
 class AsyncWriter {
  public:
+  class ReleaseIOBufCallback {
+   public:
+    virtual ~ReleaseIOBufCallback() = default;
+
+    virtual void releaseIOBuf(std::unique_ptr<folly::IOBuf>) noexcept = 0;
+  };
+
   class WriteCallback {
    public:
     virtual ~WriteCallback() = default;
@@ -300,6 +305,10 @@ class AsyncWriter {
     virtual void writeErr(
         size_t bytesWritten,
         const AsyncSocketException& ex) noexcept = 0;
+
+    virtual ReleaseIOBufCallback* getReleaseIOBufCallback() noexcept {
+      return nullptr;
+    }
   };
 
   /**
@@ -348,13 +357,9 @@ class AsyncWriter {
 
   /** zero copy related
    * */
-  virtual bool setZeroCopy(bool /*enable*/) {
-    return false;
-  }
+  virtual bool setZeroCopy(bool /*enable*/) { return false; }
 
-  virtual bool getZeroCopy() const {
-    return false;
-  }
+  virtual bool getZeroCopy() const { return false; }
 
   using ZeroCopyEnableFunc =
       std::function<bool(const std::unique_ptr<folly::IOBuf>& buf)>;
@@ -435,9 +440,7 @@ class AsyncTransport : public DelayedDestruction,
    * subclasses may treat reset() the same as closeNow().  Subclasses that use
    * TCP transports should terminate the connection with a TCP reset.
    */
-  virtual void closeWithReset() {
-    closeNow();
-  }
+  virtual void closeWithReset() { closeNow(); }
 
   /**
    * Perform a half-shutdown of the write side of the transport.
@@ -505,9 +508,7 @@ class AsyncTransport : public DelayedDestruction,
    *
    * @return  true iff the if the there is pending data, false otherwise.
    */
-  virtual bool isPending() const {
-    return readable();
-  }
+  virtual bool isPending() const { return readable(); }
 
   /**
    * Determine if transport is connected to the endpoint
@@ -645,16 +646,12 @@ class AsyncTransport : public DelayedDestruction,
    * protocol. This is useful for transports which are used to tunnel other
    * protocols.
    */
-  virtual std::string getApplicationProtocol() const noexcept {
-    return "";
-  }
+  virtual std::string getApplicationProtocol() const noexcept { return ""; }
 
   /**
    * Returns the name of the security protocol being used.
    */
-  virtual std::string getSecurityProtocol() const {
-    return "";
-  }
+  virtual std::string getSecurityProtocol() const { return ""; }
 
   /**
    * @return True iff end of record tracking is enabled
@@ -672,12 +669,8 @@ class AsyncTransport : public DelayedDestruction,
    * Calculates the total number of bytes that are currently buffered in the
    * transport to be written later.
    */
-  virtual size_t getAppBytesBuffered() const {
-    return 0;
-  }
-  virtual size_t getRawBytesBuffered() const {
-    return 0;
-  }
+  virtual size_t getAppBytesBuffered() const { return 0; }
+  virtual size_t getRawBytesBuffered() const { return 0; }
 
   /**
    * Callback class to signal changes in the transport's internal buffers.
@@ -718,9 +711,7 @@ class AsyncTransport : public DelayedDestruction,
    * False if the transport does not have replay protection, but will in the
    * future.
    */
-  virtual bool isReplaySafe() const {
-    return true;
-  }
+  virtual bool isReplaySafe() const { return true; }
 
   /**
    * Set the ReplaySafeCallback on this transport.
@@ -782,6 +773,28 @@ class AsyncTransport : public DelayedDestruction,
      * @param transport   Transport that has connected.
      */
     virtual void connect(AsyncTransport* /* transport */) noexcept = 0;
+
+    /**
+     * Called when the socket has been attached to a new EVB
+     * and is called from within the new EVB's thread
+     *
+     * @param socket    The socket on which the new EVB was attached.
+     * @param evb       The new event base that is being attached.
+     */
+    virtual void evbAttach(AsyncTransport* /* socket */, EventBase* /* evb */) {
+      // do nothing
+    }
+
+    /**
+     * Called when the socket is detached from an EVB and
+     * is called from the existing EVB's thread.
+     *
+     * @param socket    The socket from which the EVB was detached.
+     * @param evb       The existing evb that is being detached.
+     */
+    virtual void evbDetach(AsyncTransport* /* socket */, EventBase* /* evb */) {
+      // do nothing
+    }
   };
 
   /**
@@ -827,9 +840,7 @@ class AsyncTransport : public DelayedDestruction,
    * transport that is wrapped. It returns nullptr if there is no wrapped
    * transport.
    */
-  virtual const AsyncTransport* getWrappedTransport() const {
-    return nullptr;
-  }
+  virtual const AsyncTransport* getWrappedTransport() const { return nullptr; }
 
   /**
    * In many cases when we need to set socket properties or otherwise access the

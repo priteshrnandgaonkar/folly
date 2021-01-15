@@ -59,6 +59,41 @@ struct exception_wrapper::arg_type_<Ret (*)(...)> {
   using type = AnyException;
 };
 
+#ifdef FOLLY_HAVE_NOEXCEPT_FUNCTION_TYPE
+template <class Ret, class Class, class Arg>
+struct exception_wrapper::arg_type_<Ret (Class::*)(Arg) noexcept> {
+  using type = Arg;
+};
+template <class Ret, class Class, class Arg>
+struct exception_wrapper::arg_type_<Ret (Class::*)(Arg) const noexcept> {
+  using type = Arg;
+};
+template <class Ret, class Arg>
+struct exception_wrapper::arg_type_<Ret(Arg) noexcept> {
+  using type = Arg;
+};
+template <class Ret, class Arg>
+struct exception_wrapper::arg_type_<Ret (*)(Arg) noexcept> {
+  using type = Arg;
+};
+template <class Ret, class Class>
+struct exception_wrapper::arg_type_<Ret (Class::*)(...) noexcept> {
+  using type = AnyException;
+};
+template <class Ret, class Class>
+struct exception_wrapper::arg_type_<Ret (Class::*)(...) const noexcept> {
+  using type = AnyException;
+};
+template <class Ret>
+struct exception_wrapper::arg_type_<Ret(...) noexcept> {
+  using type = AnyException;
+};
+template <class Ret>
+struct exception_wrapper::arg_type_<Ret (*)(...) noexcept> {
+  using type = AnyException;
+};
+#endif
+
 template <class Ret, class... Args>
 inline Ret exception_wrapper::noop_(Args...) {
   return Ret();
@@ -282,8 +317,7 @@ inline exception_wrapper::exception_wrapper(
     ThrownTag,
     in_place_type_t<Ex>,
     As&&... as)
-    : eptr_{std::make_exception_ptr(Ex(std::forward<As>(as)...)),
-            reinterpret_cast<std::uintptr_t>(std::addressof(typeid(Ex))) + 1u},
+    : eptr_{std::make_exception_ptr(Ex(std::forward<As>(as)...)), reinterpret_cast<std::uintptr_t>(std::addressof(typeid(Ex))) + 1u},
       vptr_(&ExceptionPtr::ops_) {}
 
 template <class Ex, typename... As>
@@ -378,9 +412,10 @@ template <
     typename... As,
     FOLLY_REQUIRES_DEF(exception_wrapper::IsRegularExceptionType<Ex>::value)>
 inline exception_wrapper::exception_wrapper(in_place_type_t<Ex>, As&&... as)
-    : exception_wrapper{PlacementOf<Ex>{},
-                        in_place_type<Ex>,
-                        std::forward<As>(as)...} {}
+    : exception_wrapper{
+          PlacementOf<Ex>{},
+          in_place_type<Ex>,
+          std::forward<As>(as)...} {}
 
 inline void exception_wrapper::swap(exception_wrapper& that) noexcept {
   exception_wrapper tmp(std::move(that));
@@ -456,9 +491,9 @@ inline folly::fbstring exception_wrapper::what() const {
 
 inline folly::fbstring exception_wrapper::class_name() const {
   auto& ti = type();
-  return ti == none()
-      ? ""
-      : ti == unknown() ? "<unknown exception>" : folly::demangle(ti);
+  return ti == none()   ? ""
+      : ti == unknown() ? "<unknown exception>"
+                        : folly::demangle(ti);
 }
 
 template <class Ex>
@@ -568,7 +603,7 @@ struct exception_wrapper::HandleStdExceptReduce {
       class CatchFn,
       FOLLY_REQUIRES(IsCatchAll<CatchFn>::value)>
   auto operator()(ThrowFn&& th, CatchFn& ca) const {
-    return [th = std::forward<ThrowFn>(th), &ca](auto &&) -> StdEx* {
+    return [th = std::forward<ThrowFn>(th), &ca](auto&&) -> StdEx* {
       // The following continuation causes ca() to execute if *this contains
       // an exception /not/ derived from std::exception.
       auto continuation = [&ca](StdEx* e) {
@@ -621,9 +656,7 @@ namespace exception_wrapper_detail {
 template <class Ex, class Fn>
 struct catch_fn {
   Fn fn_;
-  auto operator()(Ex& ex) {
-    return fn_(ex);
-  }
+  auto operator()(Ex& ex) { return fn_(ex); }
 };
 
 template <class Ex, class Fn>

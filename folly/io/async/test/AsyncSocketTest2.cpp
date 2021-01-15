@@ -16,16 +16,23 @@
 
 #include <folly/io/async/test/AsyncSocketTest2.h>
 
+#include <fcntl.h>
+#include <sys/types.h>
+
+#include <time.h>
+#include <iostream>
+#include <memory>
+#include <thread>
+
 #include <folly/ExceptionWrapper.h>
 #include <folly/Random.h>
 #include <folly/SocketAddress.h>
+#include <folly/experimental/TestUtil.h>
+#include <folly/io/IOBuf.h>
 #include <folly/io/SocketOptionMap.h>
 #include <folly/io/async/AsyncTimeout.h>
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/ScopedEventBaseThread.h>
-
-#include <folly/experimental/TestUtil.h>
-#include <folly/io/IOBuf.h>
 #include <folly/io/async/test/AsyncSocketTest.h>
 #include <folly/io/async/test/Util.h>
 #include <folly/portability/GMock.h>
@@ -35,17 +42,12 @@
 #include <folly/synchronization/Baton.h>
 #include <folly/test/SocketAddressTestHelper.h>
 
-#include <fcntl.h>
-#include <sys/types.h>
-#include <iostream>
-#include <memory>
-#include <thread>
-
 using std::min;
 using std::string;
 using std::unique_ptr;
 using std::vector;
 using std::chrono::milliseconds;
+using testing::MatchesRegex;
 
 using namespace folly;
 using namespace folly::test;
@@ -171,8 +173,8 @@ TEST(AsyncSocketTest, ConnectTimeout) {
   auto host = SocketAddressTestHelper::isIPv6Enabled()
       ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv6
       : SocketAddressTestHelper::isIPv4Enabled()
-          ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv4
-          : nullptr;
+      ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv4
+      : nullptr;
   SocketAddress addr(host, 65535);
   ConnCallback cb;
   socket->connect(&cb, addr, 1); // also set a ridiculously small timeout
@@ -219,8 +221,9 @@ TEST_P(AsyncSocketConnectTest, ConnectAndWrite) {
   // write()
   char buf[128];
   memset(buf, 'a', sizeof(buf));
-  WriteCallback wcb;
-  socket->write(&wcb, buf, sizeof(buf));
+  WriteCallback wcb(true /*enableReleaseIOBufCallback*/);
+  // use writeChain so we can pass an IOBuf
+  socket->writeChain(&wcb, IOBuf::copyBuffer(buf, sizeof(buf)));
 
   // Loop.  We don't bother accepting on the server socket yet.
   // The kernel should be able to buffer the write request so it can succeed.
@@ -228,6 +231,8 @@ TEST_P(AsyncSocketConnectTest, ConnectAndWrite) {
 
   ASSERT_EQ(ccb.state, STATE_SUCCEEDED);
   ASSERT_EQ(wcb.state, STATE_SUCCEEDED);
+  ASSERT_EQ(wcb.numIoBufCount, 1);
+  ASSERT_EQ(wcb.numIoBufBytes, sizeof(buf));
 
   // Make sure the server got a connection and received the data
   socket->close();
@@ -1094,7 +1099,12 @@ TEST(AsyncSocketTest, WritePipeError) {
   // so that we could check for EPIPE
   ASSERT_EQ(wcb.state, STATE_FAILED);
   ASSERT_EQ(wcb.exception.getType(), AsyncSocketException::INTERNAL_ERROR);
-
+  ASSERT_THAT(
+      wcb.exception.what(),
+      MatchesRegex(
+          kIsMobile
+              ? "AsyncSocketException: writev\\(\\) failed \\(peer=.+\\), type = Internal error, errno = .+ \\(Broken pipe\\)"
+              : "AsyncSocketException: writev\\(\\) failed \\(peer=.+, local=.+\\), type = Internal error, errno = .+ \\(Broken pipe\\)"));
   ASSERT_FALSE(socket->isClosedBySelf());
   ASSERT_FALSE(socket->isClosedByPeer());
 }
@@ -1161,6 +1171,7 @@ TEST(AsyncSocketTest, WriteErrorCallbackBytesWritten) {
   std::thread senderThread([&]() { senderEvb.loopForever(); });
 
   ConnCallback ccb;
+  WriteCallback wcb;
   std::shared_ptr<AsyncSocket> socket;
 
   senderEvb.runInEventBaseThreadAndWait([&]() {
@@ -1174,8 +1185,6 @@ TEST(AsyncSocketTest, WriteErrorCallbackBytesWritten) {
   // Send a big (100KB) write so that it is partially written.
   constexpr size_t kSendSize = 100 * 1024;
   auto const sendBuf = std::vector<char>(kSendSize, 'a');
-
-  WriteCallback wcb;
 
   senderEvb.runInEventBaseThreadAndWait(
       [&]() { socket->write(&wcb, sendBuf.data(), kSendSize); });
@@ -1212,6 +1221,7 @@ TEST(AsyncSocketTest, WriteErrorCallbackBytesWritten) {
 
   senderEvb.terminateLoopSoon();
   senderThread.join();
+  socket.reset();
 
   ASSERT_EQ(STATE_FAILED, wcb.state);
   ASSERT_LE(kMinExpectedBytesWritten, wcb.bytesWritten);
@@ -2739,8 +2749,8 @@ TEST(AsyncSocketTest, TestTFOUnsupportedTimeout) {
   auto host = SocketAddressTestHelper::isIPv6Enabled()
       ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv6
       : SocketAddressTestHelper::isIPv4Enabled()
-          ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv4
-          : nullptr;
+      ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv4
+      : nullptr;
   SocketAddress addr(host, 65535);
 
   // Connect using a AsyncSocket
@@ -2829,8 +2839,8 @@ TEST(AsyncSocketTest, TestTFOFallbackTimeout) {
   auto host = SocketAddressTestHelper::isIPv6Enabled()
       ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv6
       : SocketAddressTestHelper::isIPv4Enabled()
-          ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv4
-          : nullptr;
+      ? SocketAddressTestHelper::kGooglePublicDnsAAddrIPv4
+      : nullptr;
   SocketAddress addr(host, 65535);
 
   // Connect using a AsyncSocket
@@ -3027,6 +3037,9 @@ TEST(AsyncSocketTest, TestEvbDetachThenClose) {
 /* copied from include/uapi/linux/net_tstamp.h */
 /* SO_TIMESTAMPING gets an integer bit field comprised of these values */
 enum SOF_TIMESTAMPING {
+  SOF_TIMESTAMPING_TX_SOFTWARE = (1 << 1),
+  SOF_TIMESTAMPING_RX_HARDWARE = (1 << 2),
+  SOF_TIMESTAMPING_RX_SOFTWARE = (1 << 3),
   SOF_TIMESTAMPING_SOFTWARE = (1 << 4),
   SOF_TIMESTAMPING_OPT_ID = (1 << 7),
   SOF_TIMESTAMPING_TX_SCHED = (1 << 8),
@@ -3260,6 +3273,8 @@ class MockAsyncSocketLifecycleObserver : public AsyncSocket::LifecycleObserver {
   GMOCK_METHOD1_(, noexcept, , connect, void(AsyncTransport*));
   GMOCK_METHOD1_(, noexcept, , fdDetach, void(AsyncSocket*));
   GMOCK_METHOD2_(, noexcept, , move, void(AsyncSocket*, AsyncSocket*));
+  GMOCK_METHOD2_(, noexcept, , evbAttach, void(AsyncTransport*, EventBase*));
+  GMOCK_METHOD2_(, noexcept, , evbDetach, void(AsyncTransport*, EventBase*));
 };
 
 class MockAsyncTransportLifecycleObserver
@@ -3270,7 +3285,47 @@ class MockAsyncTransportLifecycleObserver
   GMOCK_METHOD1_(, noexcept, , destroy, void(AsyncTransport*));
   GMOCK_METHOD1_(, noexcept, , close, void(AsyncTransport*));
   GMOCK_METHOD1_(, noexcept, , connect, void(AsyncTransport*));
+  GMOCK_METHOD2_(, noexcept, , evbAttach, void(AsyncTransport*, EventBase*));
+  GMOCK_METHOD2_(, noexcept, , evbDetach, void(AsyncTransport*, EventBase*));
 };
+
+TEST(AsyncSocket, LifecycleObserverDetachAndAttachEvb) {
+  auto cb = std::make_unique<StrictMock<MockAsyncSocketLifecycleObserver>>();
+  EventBase evb;
+  EventBase evb2;
+  auto socket = AsyncSocket::UniquePtr(new AsyncSocket(&evb));
+  EXPECT_CALL(*cb, observerAttach(socket.get()));
+  socket->addLifecycleObserver(cb.get());
+  EXPECT_THAT(socket->getLifecycleObservers(), UnorderedElementsAre(cb.get()));
+  Mock::VerifyAndClearExpectations(cb.get());
+
+  // Detach the evb and attach a new evb2
+  EXPECT_CALL(*cb, evbDetach(socket.get(), &evb));
+  socket->detachEventBase();
+  EXPECT_EQ(nullptr, socket->getEventBase());
+  Mock::VerifyAndClearExpectations(cb.get());
+
+  EXPECT_CALL(*cb, evbAttach(socket.get(), &evb2));
+  socket->attachEventBase(&evb2);
+  EXPECT_EQ(&evb2, socket->getEventBase());
+  Mock::VerifyAndClearExpectations(cb.get());
+
+  // detach the new evb2 and re-attach the old evb.
+  EXPECT_CALL(*cb, evbDetach(socket.get(), &evb2));
+  socket->detachEventBase();
+  EXPECT_EQ(nullptr, socket->getEventBase());
+  Mock::VerifyAndClearExpectations(cb.get());
+
+  EXPECT_CALL(*cb, evbAttach(socket.get(), &evb));
+  socket->attachEventBase(&evb);
+  EXPECT_EQ(&evb, socket->getEventBase());
+  Mock::VerifyAndClearExpectations(cb.get());
+
+  InSequence s;
+  EXPECT_CALL(*cb, destroy(socket.get()));
+  socket = nullptr;
+  Mock::VerifyAndClearExpectations(cb.get());
+}
 
 TEST(AsyncSocket, LifecycleObserverAttachThenDestroySocket) {
   auto cb = std::make_unique<StrictMock<MockAsyncSocketLifecycleObserver>>();
@@ -3804,9 +3859,7 @@ TEST(AsyncSocketTest, SendMessageAncillaryData) {
   // "Server" socket
   auto sfd = fds[1];
   ASSERT_NE(sfd, NetworkSocket());
-  SCOPE_EXIT {
-    netops::close(sfd);
-  };
+  SCOPE_EXIT { netops::close(sfd); };
 
   // Instantiate AsyncSocket object for the connected socket
   EventBase evb;
@@ -3877,9 +3930,7 @@ TEST(AsyncSocketTest, SendMessageAncillaryData) {
   int fd = 0;
   memcpy(&fd, CMSG_DATA(&r_u.cmh), sizeof(int));
   ASSERT_NE(fd, 0);
-  SCOPE_EXIT {
-    close(fd);
-  };
+  SCOPE_EXIT { close(fd); };
 
   std::vector<uint8_t> transferredMagicString(magicString.length() + 1, 0);
 
@@ -3911,9 +3962,7 @@ TEST(AsyncSocketTest, UnixDomainSocketErrMessageCB) {
   EXPECT_EQ(netops::socketpair(AF_UNIX, SOCK_STREAM, 0, fd), 0);
   ASSERT_NE(fd[0], NetworkSocket());
   ASSERT_NE(fd[1], NetworkSocket());
-  SCOPE_EXIT {
-    netops::close(fd[1]);
-  };
+  SCOPE_EXIT { netops::close(fd[1]); };
 
   EXPECT_EQ(netops::set_socket_non_blocking(fd[0]), 0);
   EXPECT_EQ(netops::set_socket_non_blocking(fd[1]), 0);
@@ -4157,3 +4206,157 @@ TEST(AsyncSocketTest, getBufInUse) {
   EXPECT_GT(sendBufSize, 0);
 }
 #endif
+
+TEST(AsyncSocketTest, QueueTimeout) {
+  // Create a new AsyncServerSocket
+  EventBase eventBase;
+  std::shared_ptr<AsyncServerSocket> serverSocket(
+      AsyncServerSocket::newSocket(&eventBase));
+  serverSocket->bind(0);
+  serverSocket->listen(16);
+  folly::SocketAddress serverAddress;
+  serverSocket->getAddress(&serverAddress);
+
+  constexpr auto kConnectionTimeout = milliseconds(10);
+  serverSocket->setQueueTimeout(kConnectionTimeout);
+
+  TestAcceptCallback acceptCb;
+  acceptCb.setConnectionAcceptedFn(
+      [&, called = false](auto&&...) mutable {
+        ASSERT_FALSE(called)
+            << "Only the first connection should have been dequeued";
+        called = true;
+        // Allow plenty of time for the AsyncSocketServer's event loop to run.
+        // This should leave no doubt that the acceptor thread has enough time
+        // to dequeue. If the dequeue succeeds, then our expiry code is broken.
+        constexpr auto kEventLoopTime = kConnectionTimeout * 5;
+        eventBase.runInEventBaseThread([&]() {
+          eventBase.tryRunAfterDelay(
+              [&]() { serverSocket->removeAcceptCallback(&acceptCb, nullptr); },
+              milliseconds(kEventLoopTime).count());
+        });
+        // After the first message is enqueued, sleep long enough so that the
+        // second message expires before it has a chance to dequeue.
+        std::this_thread::sleep_for(kConnectionTimeout);
+      });
+  ScopedEventBaseThread acceptThread("ioworker_test");
+
+  TestConnectionEventCallback connectionEventCb;
+  serverSocket->setConnectionEventCallback(&connectionEventCb);
+  serverSocket->addAcceptCallback(&acceptCb, acceptThread.getEventBase());
+  serverSocket->startAccepting();
+
+  std::shared_ptr<AsyncSocket> clientSocket1(
+      AsyncSocket::newSocket(&eventBase, serverAddress));
+  std::shared_ptr<AsyncSocket> clientSocket2(
+      AsyncSocket::newSocket(&eventBase, serverAddress));
+
+  // Loop until we are stopped
+  eventBase.loop();
+
+  EXPECT_EQ(connectionEventCb.getConnectionEnqueuedForAcceptCallback(), 2);
+  // Since the second message is expired, it should NOT be dequeued
+  EXPECT_EQ(connectionEventCb.getConnectionDequeuedByAcceptCallback(), 1);
+}
+
+class TestRXTimestampsCallback
+    : public folly::AsyncSocket::ReadAncillaryDataCallback {
+ public:
+  TestRXTimestampsCallback() {}
+  void ancillaryData(struct msghdr& msgh) noexcept override {
+    struct cmsghdr* cmsg;
+    for (cmsg = CMSG_FIRSTHDR(&msgh); cmsg != nullptr;
+         cmsg = CMSG_NXTHDR(&msgh, cmsg)) {
+      if (cmsg->cmsg_level != SOL_SOCKET ||
+          cmsg->cmsg_type != SO_TIMESTAMPING) {
+        continue;
+      }
+      callCount_++;
+      timespec* ts = (struct timespec*)CMSG_DATA(cmsg);
+      actualRxTimestampSec_ = ts[0].tv_sec;
+    }
+  }
+  folly::MutableByteRange getAncillaryDataCtrlBuffer() override {
+    return folly::MutableByteRange(ancillaryDataCtrlBuffer_);
+  }
+
+  uint32_t callCount_{0};
+  long actualRxTimestampSec_{0};
+
+ private:
+  std::array<uint8_t, 1024> ancillaryDataCtrlBuffer_;
+};
+
+/**
+ * Test read ancillary data callback
+ */
+TEST(AsyncSocketTest, readAncillaryData) {
+  TestServer server;
+
+  // connect()
+  EventBase evb;
+  std::shared_ptr<AsyncSocket> socket = AsyncSocket::newSocket(&evb);
+
+  ConnCallback ccb;
+  socket->connect(&ccb, server.getAddress(), 1);
+  LOG(INFO) << "Client socket fd=" << socket->getNetworkSocket();
+
+  // Enable rx timestamp notifications
+  ASSERT_NE(socket->getNetworkSocket(), NetworkSocket());
+  int flags = SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_RX_SOFTWARE |
+      SOF_TIMESTAMPING_RX_HARDWARE;
+  SocketOptionKey tstampingOpt = {SOL_SOCKET, SO_TIMESTAMPING};
+  EXPECT_EQ(tstampingOpt.apply(socket->getNetworkSocket(), flags), 0);
+
+  // Accept the connection.
+  std::shared_ptr<BlockingSocket> acceptedSocket = server.accept();
+  LOG(INFO) << "Server socket fd=" << acceptedSocket->getNetworkSocket();
+
+  // Wait for connection
+  evb.loop();
+  ASSERT_EQ(ccb.state, STATE_SUCCEEDED);
+
+  TestRXTimestampsCallback rxcb;
+
+  // Set read callback
+  ReadCallback rcb(100);
+  socket->setReadCB(&rcb);
+
+  // Get the timestamp when the message was write
+  struct timespec currentTime;
+  clock_gettime(CLOCK_REALTIME, &currentTime);
+  long writeTimestampSec = currentTime.tv_sec;
+
+  // write bytes from server (acceptedSocket) to client (socket).
+  std::vector<uint8_t> wbuf(128, 'a');
+  acceptedSocket->write(wbuf.data(), wbuf.size());
+
+  // Wait for reading to complete.
+  evb.loopOnce();
+  ASSERT_NE(rcb.buffers.size(), 0);
+
+  // Verify that if the callback is not set, it will not be called
+  ASSERT_EQ(rxcb.callCount_, 0);
+
+  // Set up rx timestamp callbacks
+  socket->setReadAncillaryDataCB(&rxcb);
+  acceptedSocket->write(wbuf.data(), wbuf.size());
+
+  // Wait for reading to complete.
+  evb.loopOnce();
+  ASSERT_NE(rcb.buffers.size(), 0);
+
+  // Verify that after setting callback, the callback was called
+  ASSERT_NE(rxcb.callCount_, 0);
+  // Compare the received timestamp is within an expected range
+  clock_gettime(CLOCK_REALTIME, &currentTime);
+  ASSERT_TRUE(rxcb.actualRxTimestampSec_ <= currentTime.tv_sec);
+  ASSERT_TRUE(rxcb.actualRxTimestampSec_ >= writeTimestampSec);
+
+  // Close both sockets
+  acceptedSocket->close();
+  socket->close();
+
+  ASSERT_TRUE(socket->isClosedBySelf());
+  ASSERT_FALSE(socket->isClosedByPeer());
+}

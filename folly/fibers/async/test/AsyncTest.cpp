@@ -14,12 +14,10 @@
  * limitations under the License.
  */
 
-#include <folly/portability/GMock.h>
-#include <folly/portability/GTest.h>
+#include <folly/fibers/async/Async.h>
 
 #include <folly/fibers/FiberManager.h>
 #include <folly/fibers/FiberManagerMap.h>
-#include <folly/fibers/async/Async.h>
 #include <folly/fibers/async/Baton.h>
 #include <folly/fibers/async/Collect.h>
 #include <folly/fibers/async/FiberManager.h>
@@ -27,6 +25,8 @@
 #include <folly/fibers/async/Promise.h>
 #include <folly/fibers/async/WaitUtils.h>
 #include <folly/io/async/EventBase.h>
+#include <folly/portability/GMock.h>
+#include <folly/portability/GTest.h>
 
 #if FOLLY_HAS_COROUTINES
 #include <folly/experimental/coro/Sleep.h>
@@ -84,8 +84,7 @@ TEST(AsyncTest, asyncAwait) {
           static_assert(
               std::is_same<decltype(ref), NonCopyableNonMoveable const&>::value,
               "");
-        })
-          .getVia(&evb));
+        }).getVia(&evb));
 }
 
 TEST(AsyncTest, asyncBaton) {
@@ -116,8 +115,7 @@ TEST(AsyncTest, asyncBaton) {
             EXPECT_FALSE(res);
             EXPECT_LE(start + kTimeout, std::chrono::steady_clock::now());
           }
-        })
-          .getVia(&evb));
+        }).getVia(&evb));
 }
 
 TEST(AsyncTest, asyncPromise) {
@@ -128,8 +126,7 @@ TEST(AsyncTest, asyncPromise) {
       auto res = async::await(
           async::promiseWait([](Promise<int> p) { p.setValue(42); }));
       EXPECT_EQ(res, 42);
-    })
-      .getVia(&evb);
+    }).getVia(&evb);
 }
 
 TEST(AsyncTest, asyncFuture) {
@@ -177,8 +174,7 @@ TEST(AsyncTest, asyncFuture) {
         EXPECT_TRUE(std::get<1>(res));
         EXPECT_FALSE(std::get<2>(res));
       }
-    })
-      .getVia(&evb);
+    }).getVia(&evb);
 }
 
 #if FOLLY_HAS_COROUTINES
@@ -205,8 +201,7 @@ TEST(AsyncTest, asyncTask) {
           std::make_tuple(std::this_thread::get_id(), true, false),
           async::init_await(async::taskWait(coroFn())));
       async::init_await(async::taskWait(voidCoroFn()));
-    })
-      .getVia(&evb);
+    }).getVia(&evb);
 }
 #endif
 

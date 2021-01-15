@@ -15,13 +15,6 @@
  */
 
 #include <folly/futures/Future.h>
-#include <folly/Executor.h>
-#include <folly/Memory.h>
-#include <folly/Unit.h>
-#include <folly/dynamic.h>
-#include <folly/executors/ManualExecutor.h>
-#include <folly/portability/GTest.h>
-#include <folly/synchronization/Baton.h>
 
 #include <algorithm>
 #include <atomic>
@@ -31,6 +24,14 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+
+#include <folly/Executor.h>
+#include <folly/Memory.h>
+#include <folly/Unit.h>
+#include <folly/dynamic.h>
+#include <folly/executors/ManualExecutor.h>
+#include <folly/portability/GTest.h>
+#include <folly/synchronization/Baton.h>
 
 using namespace folly;
 
@@ -407,7 +408,7 @@ TEST(Future, thenError) {
   // Non-exceptions
   {
     auto f = makeFuture()
-                 .thenValue([](auto&&) { throw - 1; })
+                 .thenValue([](auto&&) { throw -1; })
                  .thenError(folly::tag_t<int>{}, [&](int /* e */) { flag(); });
     EXPECT_FLAG();
     EXPECT_NO_THROW(f.value());
@@ -415,7 +416,7 @@ TEST(Future, thenError) {
 
   {
     auto f = makeFuture()
-                 .thenValue([](auto&&) { throw - 1; })
+                 .thenValue([](auto&&) { throw -1; })
                  .thenError(folly::tag_t<int>{}, [&](int /* e */) {
                    flag();
                    return makeFuture();
@@ -451,7 +452,7 @@ TEST(Future, thenError) {
   {
     auto f =
         makeFuture()
-            .thenValue([](auto &&) -> int { throw eggs; })
+            .thenValue([](auto&&) -> int { throw eggs; })
             .thenError(folly::tag_t<eggs_t>{}, thenErrorHelperEggs)
             .thenError(folly::tag_t<std::exception>{}, thenErrorHelperGeneric);
     EXPECT_EQ(10, f.value());
@@ -459,7 +460,7 @@ TEST(Future, thenError) {
   {
     auto f =
         makeFuture()
-            .thenValue([](auto &&) -> int { throw std::runtime_error("test"); })
+            .thenValue([](auto&&) -> int { throw std::runtime_error("test"); })
             .thenError(folly::tag_t<eggs_t>{}, thenErrorHelperEggs)
             .thenError(folly::tag_t<std::exception>{}, thenErrorHelperGeneric);
     EXPECT_EQ(20, f.value());
@@ -467,13 +468,13 @@ TEST(Future, thenError) {
   {
     auto f =
         makeFuture()
-            .thenValue([](auto &&) -> int { throw std::runtime_error("test"); })
+            .thenValue([](auto&&) -> int { throw std::runtime_error("test"); })
             .thenError(folly::tag_t<eggs_t>{}, thenErrorHelperEggs);
     EXPECT_THROW(f.value(), std::runtime_error);
   }
   {
     auto f = makeFuture()
-                 .thenValue([](auto &&) -> int { throw eggs; })
+                 .thenValue([](auto&&) -> int { throw eggs; })
                  .thenError(tag_t<eggs_t>{}, thenErrorHelperEggs)
                  .thenError<std::exception>(thenErrorHelperGeneric);
     EXPECT_EQ(10, f.value());
@@ -481,7 +482,7 @@ TEST(Future, thenError) {
   {
     auto f =
         makeFuture()
-            .thenValue([](auto &&) -> int { throw std::runtime_error("test"); })
+            .thenValue([](auto&&) -> int { throw std::runtime_error("test"); })
             .thenError(tag_t<eggs_t>{}, thenErrorHelperEggs)
             .thenError(thenErrorHelperWrapper);
     EXPECT_EQ(30, f.value());
@@ -489,7 +490,7 @@ TEST(Future, thenError) {
   {
     auto f =
         makeFuture()
-            .thenValue([](auto &&) -> int { throw std::runtime_error("test"); })
+            .thenValue([](auto&&) -> int { throw std::runtime_error("test"); })
             .thenError(tag_t<eggs_t>{}, thenErrorHelperEggs);
     EXPECT_THROW(f.value(), std::runtime_error);
   }
@@ -543,7 +544,7 @@ TEST(Future, thenError) {
   // Returned value propagates
   {
     auto f = makeFuture()
-                 .thenValue([](auto &&) -> int { throw eggs; })
+                 .thenValue([](auto&&) -> int { throw eggs; })
                  .thenError(folly::tag_t<eggs_t>{}, [&](auto&& /* e */) {
                    return 42;
                  });
@@ -553,7 +554,7 @@ TEST(Future, thenError) {
   // Returned future propagates
   {
     auto f = makeFuture()
-                 .thenValue([](auto &&) -> int { throw eggs; })
+                 .thenValue([](auto&&) -> int { throw eggs; })
                  .thenError(folly::tag_t<eggs_t>{}, [&](auto&& /* e */) {
                    return makeFuture<int>(42);
                  });
@@ -563,7 +564,7 @@ TEST(Future, thenError) {
   // Throw in callback
   {
     auto f = makeFuture()
-                 .thenValue([](auto &&) -> int { throw eggs; })
+                 .thenValue([](auto&&) -> int { throw eggs; })
                  .thenError(folly::tag_t<eggs_t>{}, [&](auto&& e) -> int {
                    throw std::move(e);
                  });
@@ -572,7 +573,7 @@ TEST(Future, thenError) {
 
   {
     auto f = makeFuture()
-                 .thenValue([](auto &&) -> int { throw eggs; })
+                 .thenValue([](auto&&) -> int { throw eggs; })
                  .thenError(
                      folly::tag_t<eggs_t>{},
                      [&](auto&& e) -> Future<int> { throw std::move(e); });
@@ -594,7 +595,7 @@ TEST(Future, thenError) {
   // exception_wrapper, return Future<T> but throw
   {
     auto f = makeFuture()
-                 .thenValue([](auto &&) -> int { throw eggs; })
+                 .thenValue([](auto&&) -> int { throw eggs; })
                  .thenError([&](exception_wrapper /* e */) -> Future<int> {
                    flag();
                    throw eggs;
@@ -606,7 +607,7 @@ TEST(Future, thenError) {
   // exception_wrapper, return T
   {
     auto f = makeFuture()
-                 .thenValue([](auto &&) -> int { throw eggs; })
+                 .thenValue([](auto&&) -> int { throw eggs; })
                  .thenError([&](exception_wrapper /* e */) {
                    flag();
                    return -1;
@@ -618,7 +619,7 @@ TEST(Future, thenError) {
   // exception_wrapper, return T but throw
   {
     auto f = makeFuture()
-                 .thenValue([](auto &&) -> int { throw eggs; })
+                 .thenValue([](auto&&) -> int { throw eggs; })
                  .thenError([&](exception_wrapper /* e */) -> int {
                    flag();
                    throw eggs;
@@ -812,9 +813,7 @@ static std::string doWorkStaticValue(std::string&& t) {
 
 TEST(Future, thenFunction) {
   struct Worker {
-    std::string doWork(Try<std::string>&& t) {
-      return t.value() + ";class";
-    }
+    std::string doWork(Try<std::string>&& t) { return t.value() + ";class"; }
     static std::string doWorkStatic(Try<std::string>&& t) {
       return t.value() + ";class-static";
     }
@@ -1043,20 +1042,21 @@ TEST(Future, unwrap) {
 
 TEST(Future, throwCaughtInImmediateThen) {
   // Neither of these should throw "Promise already satisfied"
-  makeFuture().then([=](Try<Unit> &&) -> int { throw std::exception(); });
+  makeFuture().then([=](Try<Unit>&&) -> int { throw std::exception(); });
   makeFuture().then(
-      [=](Try<Unit> &&) -> Future<int> { throw std::exception(); });
+      [=](Try<Unit>&&) -> Future<int> { throw std::exception(); });
 }
 
 TEST(Future, throwIfFailed) {
   makeFuture<Unit>(eggs).then(
-      [=](Try<Unit>&& t) { EXPECT_THROW(t.throwIfFailed(), eggs_t); });
-  makeFuture().then([=](Try<Unit>&& t) { EXPECT_NO_THROW(t.throwIfFailed()); });
+      [=](Try<Unit>&& t) { EXPECT_THROW(t.throwUnlessValue(), eggs_t); });
+  makeFuture().then(
+      [=](Try<Unit>&& t) { EXPECT_NO_THROW(t.throwUnlessValue()); });
 
   makeFuture<int>(eggs).then(
-      [=](Try<int>&& t) { EXPECT_THROW(t.throwIfFailed(), eggs_t); });
+      [=](Try<int>&& t) { EXPECT_THROW(t.throwUnlessValue(), eggs_t); });
   makeFuture<int>(42).then(
-      [=](Try<int>&& t) { EXPECT_NO_THROW(t.throwIfFailed()); });
+      [=](Try<int>&& t) { EXPECT_NO_THROW(t.throwUnlessValue()); });
 }
 
 TEST(Future, getFutureAfterSetValue) {
@@ -1162,16 +1162,10 @@ TEST(Future, RequestContext) {
     void addWithPriority(Func f, int8_t /* prio */) override {
       add(std::move(f));
     }
-    uint8_t getNumPriorities() const override {
-      return numPriorities_;
-    }
+    uint8_t getNumPriorities() const override { return numPriorities_; }
 
-    void setHandlesPriorities() {
-      numPriorities_ = 2;
-    }
-    void setThrowsOnAdd() {
-      throwsOnAdd_ = true;
-    }
+    void setHandlesPriorities() { numPriorities_ = 2; }
+    void setThrowsOnAdd() { throwsOnAdd_ = true; }
 
    private:
     std::vector<std::thread> v_;
@@ -1182,9 +1176,7 @@ TEST(Future, RequestContext) {
   struct MyRequestData : RequestData {
     MyRequestData(bool value_ = false) : value(value_) {}
 
-    bool hasCallback() override {
-      return false;
-    }
+    bool hasCallback() override { return false; }
 
     bool value;
   };
@@ -1225,15 +1217,9 @@ TEST(Future, makeFutureNoThrow) {
 
 TEST(Future, invokeCallbackReturningValueAsRvalue) {
   struct Foo {
-    int operator()(int x) & {
-      return x + 1;
-    }
-    int operator()(int x) const& {
-      return x + 2;
-    }
-    int operator()(int x) && {
-      return x + 3;
-    }
+    int operator()(int x) & { return x + 1; }
+    int operator()(int x) const& { return x + 2; }
+    int operator()(int x) && { return x + 3; }
   };
 
   Foo foo;
@@ -1249,15 +1235,9 @@ TEST(Future, invokeCallbackReturningValueAsRvalue) {
 
 TEST(Future, invokeCallbackReturningFutureAsRvalue) {
   struct Foo {
-    Future<int> operator()(int x) & {
-      return x + 1;
-    }
-    Future<int> operator()(int x) const& {
-      return x + 2;
-    }
-    Future<int> operator()(int x) && {
-      return x + 3;
-    }
+    Future<int> operator()(int x) & { return x + 1; }
+    Future<int> operator()(int x) const& { return x + 2; }
+    Future<int> operator()(int x) && { return x + 3; }
   };
 
   Foo foo;
@@ -1309,9 +1289,7 @@ TEST(Future, makePromiseContract) {
     std::queue<Func> queue_;
 
    public:
-    void add(Func f) override {
-      queue_.push(std::move(f));
-    }
+    void add(Func f) override { queue_.push(std::move(f)); }
     void drain() {
       while (!queue_.empty()) {
         auto f = std::move(queue_.front());
@@ -1442,7 +1420,7 @@ TEST(Future, NoThrow) {
 }
 
 TEST(Future, DetachTest) {
-  folly::Baton<> b1, b2, b3;
+  folly::Baton<> b1, b2, b3, b4;
   folly::ManualExecutor exec;
   std::atomic<int> result(0);
 
@@ -1468,11 +1446,18 @@ TEST(Future, DetachTest) {
           })
           .semi());
 
+  folly::futures::maybeDetachOnGlobalExecutorAfter(
+      std::chrono::milliseconds{100}, makeSemiFuture().deferValue([&](auto&&) {
+        result++;
+        b4.post();
+      }));
+
   exec.drain();
   b1.wait();
   b2.wait();
   b3.wait();
-  EXPECT_TRUE(result == 3);
+  b4.wait();
+  EXPECT_TRUE(result == 4);
 }
 
 TEST(Future, SimpleGet) {

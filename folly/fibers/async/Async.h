@@ -16,12 +16,14 @@
 
 #pragma once
 
+#include <utility>
+
+#include <glog/logging.h>
+
 #include <folly/Traits.h>
 #include <folly/Unit.h>
 #include <folly/functional/Invoke.h>
 #include <folly/lang/CustomizationPoint.h>
-#include <glog/logging.h>
-#include <utility>
 
 namespace folly {
 namespace fibers {
@@ -89,19 +91,19 @@ class [[nodiscard]] Async {
 
   // General use constructor
   template <typename... Us>
-  /* implicit */ Async(Us && ... val) : val_(std::forward<Us>(val)...) {}
+  /* implicit */ Async(Us&&... val) : val_(std::forward<Us>(val)...) {}
 
   // Move constructor to allow eager-return of async without using await
   template <typename U>
-  /* implicit */ Async(Async<U> && async) noexcept
+  /* implicit */ Async(Async<U>&& async) noexcept
       : val_(static_cast<U&&>(async.val_)) {}
 
   Async(const Async&) = delete;
-  Async(Async && other) = default;
+  Async(Async&& other) = default;
   Async& operator=(const Async&) = delete;
   Async& operator=(Async&&) = delete;
 
-  friend T&& tag_invoke(await_fn, Async && async) noexcept {
+  friend T&& tag_invoke(await_fn, Async&& async) noexcept {
     DCHECK(detail::onFiber());
     return static_cast<T&&>(async.val_);
   }
@@ -120,14 +122,14 @@ class [[nodiscard]] Async<void> {
 
   /* implicit */ Async() {}
   /* implicit */ Async(Unit) {}
-  /* implicit */ Async(Async<Unit> &&) {}
+  /* implicit */ Async(Async<Unit>&&) {}
 
   Async(const Async&) = delete;
-  Async(Async && other) = default;
+  Async(Async&& other) = default;
   Async& operator=(const Async&) = delete;
   Async operator=(Async&&) = delete;
 
-  friend void tag_invoke(await_fn, Async &&) noexcept {
+  friend void tag_invoke(await_fn, Async&&) noexcept {
     DCHECK(detail::onFiber());
   }
 };
@@ -138,7 +140,7 @@ class [[nodiscard]] Async<void> {
  * The guide doesn't permit constructing and returning by reference.
  */
 template <typename T>
-explicit Async(T)->Async<T>;
+explicit Async(T) -> Async<T>;
 #endif
 
 /**

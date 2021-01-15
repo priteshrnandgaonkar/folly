@@ -15,12 +15,15 @@
  */
 
 #include <folly/Portability.h>
+
 // Allow tests for keys that throw in copy/move constructors. This
 // warning has to be disabled before the templates are defined in the
 // header to have any effect.
 FOLLY_GNU_DISABLE_WARNING("-Wdeprecated-declarations")
 
+// clang-format off:
 #include <folly/container/F14Set.h>
+// clang-format on
 
 #include <chrono>
 #include <random>
@@ -75,7 +78,8 @@ TEST(F14Set, customSwap) {
 
 namespace {
 template <
-    template <typename, typename, typename, typename> class TSet,
+    template <typename, typename, typename, typename>
+    class TSet,
     typename K>
 void runAllocatedMemorySizeTest() {
   using A = SwapTrackingAlloc<K>;
@@ -1425,18 +1429,12 @@ namespace {
 struct A {
   int value;
 
-  bool operator==(A const& rhs) const {
-    return value == rhs.value;
-  }
-  bool operator!=(A const& rhs) const {
-    return !(*this == rhs);
-  }
+  bool operator==(A const& rhs) const { return value == rhs.value; }
+  bool operator!=(A const& rhs) const { return !(*this == rhs); }
 };
 
 struct AHasher {
-  std::size_t operator()(A const& v) const {
-    return v.value;
-  }
+  std::size_t operator()(A const& v) const { return v.value; }
 };
 
 template <typename T>
@@ -1447,9 +1445,7 @@ struct B {
 
   /* implicit */ B(A const& v) : value(v.value) {}
 
-  /* implicit */ operator A() const {
-    return A{value};
-  }
+  /* implicit */ operator A() const { return A{value}; }
 };
 
 struct C {
@@ -1483,7 +1479,8 @@ struct CharArrayHasher {
 };
 
 template <
-    template <typename, typename, typename, typename> class S,
+    template <typename, typename, typename, typename>
+    class S,
     std::size_t N>
 struct RunAllValueSizeTests {
   void operator()() const {

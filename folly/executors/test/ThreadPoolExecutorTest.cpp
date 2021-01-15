@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <folly/executors/ThreadPoolExecutor.h>
+
 #include <atomic>
 #include <memory>
 #include <thread>
@@ -26,7 +28,6 @@
 #include <folly/executors/EDFThreadPoolExecutor.h>
 #include <folly/executors/FutureExecutor.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
-#include <folly/executors/ThreadPoolExecutor.h>
 #include <folly/executors/task_queue/LifoSemMPMCQueue.h>
 #include <folly/executors/task_queue/UnboundedBlockingQueue.h>
 #include <folly/executors/thread_factory/InitThreadFactory.h>
@@ -348,11 +349,12 @@ static void futureExecutor() {
     c++;
     EXPECT_NO_THROW(t.value());
   });
-  fe.addFuture([]() { throw std::runtime_error("oops"); })
-      .then([&](Try<Unit>&& t) {
-        c++;
-        EXPECT_THROW(t.value(), std::runtime_error);
-      });
+  fe.addFuture([]() {
+      throw std::runtime_error("oops");
+    }).then([&](Try<Unit>&& t) {
+    c++;
+    EXPECT_THROW(t.value(), std::runtime_error);
+  });
   // Test doing actual async work
   folly::Baton<> baton;
   fe.addFuture([&]() {
@@ -363,12 +365,11 @@ static void futureExecutor() {
       });
       t.detach();
       return p->getFuture();
-    })
-      .then([&](Try<int>&& t) {
-        EXPECT_EQ(42, t.value());
-        c++;
-        baton.post();
-      });
+    }).then([&](Try<int>&& t) {
+    EXPECT_EQ(42, t.value());
+    c++;
+    baton.post();
+  });
   baton.wait();
   fe.join();
   EXPECT_EQ(6, c);
@@ -413,21 +414,15 @@ TEST(ThreadPoolExecutorTest, PriorityPreemptionTest) {
 
 class TestObserver : public ThreadPoolExecutor::Observer {
  public:
-  void threadStarted(ThreadPoolExecutor::ThreadHandle*) override {
-    threads_++;
-  }
-  void threadStopped(ThreadPoolExecutor::ThreadHandle*) override {
-    threads_--;
-  }
+  void threadStarted(ThreadPoolExecutor::ThreadHandle*) override { threads_++; }
+  void threadStopped(ThreadPoolExecutor::ThreadHandle*) override { threads_--; }
   void threadPreviouslyStarted(ThreadPoolExecutor::ThreadHandle*) override {
     threads_++;
   }
   void threadNotYetStopped(ThreadPoolExecutor::ThreadHandle*) override {
     threads_--;
   }
-  void checkCalls() {
-    ASSERT_EQ(threads_, 0);
-  }
+  void checkCalls() { ASSERT_EQ(threads_, 0); }
 
  private:
   std::atomic<int> threads_{0};
@@ -589,9 +584,7 @@ class TestData : public folly::RequestData {
   explicit TestData(int data) : data_(data) {}
   ~TestData() override {}
 
-  bool hasCallback() override {
-    return false;
-  }
+  bool hasCallback() override { return false; }
 
   int data_;
 };
@@ -616,9 +609,7 @@ std::atomic<int> g_sequence{};
 
 struct SlowMover {
   explicit SlowMover(bool slow_ = false) : slow(slow_) {}
-  SlowMover(SlowMover&& other) noexcept {
-    *this = std::move(other);
-  }
+  SlowMover(SlowMover&& other) noexcept { *this = std::move(other); }
   SlowMover& operator=(SlowMover&& other) noexcept {
     ++g_sequence;
     slow = other.slow;

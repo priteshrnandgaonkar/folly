@@ -55,32 +55,25 @@ class BuildOptions(object):
         use_shipit=False,
         vcvars_path=None,
         allow_system_packages=False,
+        lfs_path=None,
     ):
-        """ fbcode_builder_dir - the path to either the in-fbsource fbcode_builder dir,
-                                 or for shipit-transformed repos, the build dir that
-                                 has been mapped into that dir.
-            scratch_dir - a place where we can store repos and build bits.
-                          This path should be stable across runs and ideally
-                          should not be in the repo of the project being built,
-                          but that is ultimately where we generally fall back
-                          for builds outside of FB
-            install_dir - where the project will ultimately be installed
-            num_jobs - the level of concurrency to use while building
-            use_shipit - use real shipit instead of the simple shipit transformer
-            vcvars_path - Path to external VS toolchain's vsvarsall.bat
+        """fbcode_builder_dir - the path to either the in-fbsource fbcode_builder dir,
+                             or for shipit-transformed repos, the build dir that
+                             has been mapped into that dir.
+        scratch_dir - a place where we can store repos and build bits.
+                      This path should be stable across runs and ideally
+                      should not be in the repo of the project being built,
+                      but that is ultimately where we generally fall back
+                      for builds outside of FB
+        install_dir - where the project will ultimately be installed
+        num_jobs - the level of concurrency to use while building
+        use_shipit - use real shipit instead of the simple shipit transformer
+        vcvars_path - Path to external VS toolchain's vsvarsall.bat
         """
         if not num_jobs:
             import multiprocessing
 
-            num_jobs = multiprocessing.cpu_count()
-            if is_windows():
-                # On Windows the cpu count tends to be the HT count.
-                # Running with that level of concurrency tends to
-                # swamp the system and make hard to perform other
-                # light work.  Let's halve the number of cores here
-                # to win that back. The user can still specify a
-                # larger number if desired.
-                num_jobs = int(num_jobs / 2)
+            num_jobs = multiprocessing.cpu_count() // 2
 
         if not install_dir:
             install_dir = os.path.join(scratch_dir, "installed")
@@ -109,6 +102,7 @@ class BuildOptions(object):
         self.host_type = host_type
         self.use_shipit = use_shipit
         self.allow_system_packages = allow_system_packages
+        self.lfs_path = lfs_path
         if vcvars_path is None and is_windows():
 
             # On Windows, the compiler is not available in the PATH by
@@ -442,6 +436,10 @@ def setup_build_options(args, host_type=None):
     if not is_windows():
         scratch_dir = os.path.realpath(scratch_dir)
 
+    # Save any extra cmake defines passed by the user in an env variable, so it
+    # can be used while hashing this build.
+    os.environ["GETDEPS_CMAKE_DEFINES"] = getattr(args, "extra_cmake_defines", "") or ""
+
     host_type = _check_host_type(args, host_type)
 
     return BuildOptions(
@@ -453,4 +451,5 @@ def setup_build_options(args, host_type=None):
         use_shipit=args.use_shipit,
         vcvars_path=args.vcvars_path,
         allow_system_packages=args.allow_system_packages,
+        lfs_path=args.lfs_path,
     )

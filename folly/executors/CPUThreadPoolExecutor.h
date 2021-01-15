@@ -17,6 +17,7 @@
 #pragma once
 
 #include <limits.h>
+
 #include <array>
 
 #include <folly/concurrency/QueueObserver.h>
@@ -138,13 +139,9 @@ class CPUThreadPoolExecutor : public ThreadPoolExecutor {
           poison(true),
           priority_(0) {}
 
-    size_t queuePriority() const {
-      return priority_;
-    }
+    size_t queuePriority() const { return priority_; }
 
-    intptr_t& queueObserverPayload() {
-      return queueObserverPayload_;
-    }
+    intptr_t& queueObserverPayload() { return queueObserverPayload_; }
 
     bool poison;
 

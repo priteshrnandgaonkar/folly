@@ -15,10 +15,11 @@
  */
 
 #include <folly/detail/ThreadLocalDetail.h>
-#include <folly/synchronization/CallOnce.h>
 
 #include <list>
 #include <mutex>
+
+#include <folly/synchronization/CallOnce.h>
 
 constexpr auto kSmallGrowthFactor = 1.1;
 constexpr auto kBigGrowthFactor = 1.7;
@@ -87,9 +88,7 @@ ThreadEntryList* StaticMetaBase::getThreadEntryList() {
       PthreadKeyUnregister::registerKey(pthreadKey_);
     }
 
-    FOLLY_ALWAYS_INLINE pthread_key_t get() const {
-      return pthreadKey_;
-    }
+    FOLLY_ALWAYS_INLINE pthread_key_t get() const { return pthreadKey_; }
 
    private:
     pthread_key_t pthreadKey_;

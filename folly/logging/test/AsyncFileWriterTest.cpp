@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <folly/logging/AsyncFileWriter.h>
+
 #include <thread>
 
 #include <folly/Conv.h>
@@ -27,7 +29,6 @@
 #include <folly/futures/Promise.h>
 #include <folly/init/Init.h>
 #include <folly/lang/SafeAssert.h>
-#include <folly/logging/AsyncFileWriter.h>
 #include <folly/logging/Init.h>
 #include <folly/logging/LoggerDB.h>
 #include <folly/logging/xlog.h>
@@ -272,14 +273,11 @@ static constexpr StringPiece kMsgSuffix{
 class ReadStats {
  public:
   ReadStats()
-      : deadline_{steady_clock::now() +
-                  milliseconds{FLAGS_async_discard_timeout_msec}},
+      : deadline_{steady_clock::now() + milliseconds{FLAGS_async_discard_timeout_msec}},
         readSleepUS_{static_cast<uint64_t>(
             std::min(int64_t{0}, FLAGS_async_discard_read_sleep_usec))} {}
 
-  void clearSleepDuration() {
-    readSleepUS_.store(0);
-  }
+  void clearSleepDuration() { readSleepUS_.store(0); }
   std::chrono::microseconds getSleepUS() const {
     return std::chrono::microseconds{readSleepUS_.load()};
   }
@@ -389,9 +387,7 @@ class ReadStats {
     }
   }
 
-  void trailingData(StringPiece data) {
-    trailingData_ = data.str();
-  }
+  void trailingData(StringPiece data) { trailingData_ = data.str(); }
 
  private:
   struct ReaderData {

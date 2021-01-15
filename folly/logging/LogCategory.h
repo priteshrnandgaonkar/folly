@@ -64,9 +64,7 @@ class LogCategory {
   /**
    * Get the name of this log category.
    */
-  const std::string& getName() const {
-    return name_;
-  }
+  const std::string& getName() const { return name_; }
 
   /**
    * Get the level for this log category.
@@ -81,8 +79,9 @@ class LogCategory {
    */
   std::pair<LogLevel, bool> getLevelInfo() const {
     auto value = level_.load(std::memory_order_acquire);
-    return {static_cast<LogLevel>(value & ~FLAG_INHERIT),
-            bool(value & FLAG_INHERIT)};
+    return {
+        static_cast<LogLevel>(value & ~FLAG_INHERIT),
+        bool(value & FLAG_INHERIT)};
   }
 
   /**
@@ -164,9 +163,7 @@ class LogCategory {
    * LoggerDB::get().  The logging unit tests are the main location that
    * creates alternative LoggerDB objects.
    */
-  LoggerDB* getDB() const {
-    return db_;
-  }
+  LoggerDB* getDB() const { return db_; }
 
   /**
    * Attach a LogHandler to this category.

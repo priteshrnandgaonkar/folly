@@ -16,9 +16,9 @@
 
 #include <folly/io/async/ssl/OpenSSLUtils.h>
 
-#include <glog/logging.h>
-
 #include <unordered_map>
+
+#include <glog/logging.h>
 
 #include <folly/ScopeGuard.h>
 #include <folly/portability/Sockets.h>
@@ -174,16 +174,12 @@ static std::unordered_map<uint16_t, std::string> getOpenSSLCipherNames() {
   if ((ctx = SSL_CTX_new(meth)) == nullptr) {
     return ret;
   }
-  SCOPE_EXIT {
-    SSL_CTX_free(ctx);
-  };
+  SCOPE_EXIT { SSL_CTX_free(ctx); };
 
   if ((ssl = SSL_new(ctx)) == nullptr) {
     return ret;
   }
-  SCOPE_EXIT {
-    SSL_free(ssl);
-  };
+  SCOPE_EXIT { SSL_free(ssl); };
 
   STACK_OF(SSL_CIPHER)* sk = SSL_get_ciphers(ssl);
   for (int i = 0; i < sk_SSL_CIPHER_num(sk); i++) {

@@ -14,16 +14,15 @@
  * limitations under the License.
  */
 
+#include <folly/Function.h>
+
 #include <array>
 #include <cstdarg>
-
-#include <folly/Function.h>
 
 #include <folly/Memory.h>
 #include <folly/portability/GTest.h>
 
 using folly::Function;
-using folly::FunctionRef;
 
 namespace {
 int func_int_int_add_25(int x) {
@@ -42,9 +41,7 @@ struct Functor {
 
   // Two operator() with different argument types.
   // The InvokeReference tests use both
-  T const& operator()(size_t index) const {
-    return data[index];
-  }
+  T const& operator()(size_t index) const { return data[index]; }
   T operator()(size_t index, T const& value) {
     T oldvalue = data[index];
     data[index] = value;
@@ -266,21 +263,15 @@ TEST(Function, Emptiness_T) {
   struct CastableToBool {
     bool val;
     /* implicit */ CastableToBool(bool b) : val(b) {}
-    explicit operator bool() {
-      return val;
-    }
+    explicit operator bool() { return val; }
   };
   // models std::function
   struct NullptrTestableInSitu {
     int res;
-    explicit NullptrTestableInSitu(std::nullptr_t) : res(1) {}
+    FOLLY_MAYBE_UNUSED explicit NullptrTestableInSitu(std::nullptr_t);
     explicit NullptrTestableInSitu(int i) : res(i) {}
-    CastableToBool operator==(std::nullptr_t) const {
-      return res % 3 != 1;
-    }
-    int operator()(int in) const {
-      return res * in;
-    }
+    CastableToBool operator==(std::nullptr_t) const { return res % 3 != 1; }
+    int operator()(int in) const { return res * in; }
   };
   struct NullptrTestableOnHeap : NullptrTestableInSitu {
     unsigned char data[1024 - sizeof(NullptrTestableInSitu)];
@@ -306,12 +297,6 @@ TEST(Function, Emptiness_T) {
   EXPECT_NE(nullptr, m);
   EXPECT_TRUE(m);
   EXPECT_EQ(428, m(107));
-
-  auto noopfun = [] {};
-  EXPECT_EQ(nullptr, FunctionRef<void()>(nullptr));
-  EXPECT_NE(nullptr, FunctionRef<void()>(noopfun));
-  EXPECT_EQ(FunctionRef<void()>(nullptr), nullptr);
-  EXPECT_NE(FunctionRef<void()>(noopfun), nullptr);
 }
 
 // TEST =====================================================================
@@ -418,34 +403,22 @@ TEST(Function, NonCopyableLambda) {
 TEST(Function, OverloadedFunctor) {
   struct OverloadedFunctor {
     // variant 1
-    int operator()(int x) {
-      return 100 + 1 * x;
-    }
+    int operator()(int x) { return 100 + 1 * x; }
 
     // variant 2 (const-overload of v1)
-    int operator()(int x) const {
-      return 100 + 2 * x;
-    }
+    int operator()(int x) const { return 100 + 2 * x; }
 
     // variant 3
-    int operator()(int x, int) {
-      return 100 + 3 * x;
-    }
+    int operator()(int x, int) { return 100 + 3 * x; }
 
     // variant 4 (const-overload of v3)
-    int operator()(int x, int) const {
-      return 100 + 4 * x;
-    }
+    int operator()(int x, int) const { return 100 + 4 * x; }
 
     // variant 5 (non-const, has no const-overload)
-    int operator()(int x, char const*) {
-      return 100 + 5 * x;
-    }
+    int operator()(int x, char const*) { return 100 + 5 * x; }
 
     // variant 6 (const only)
-    int operator()(int x, std::vector<int> const&) const {
-      return 100 + 6 * x;
-    }
+    int operator()(int x, std::vector<int> const&) const { return 100 + 6 * x; }
   };
   OverloadedFunctor of;
 
@@ -552,12 +525,8 @@ TEST(Function, Lambda) {
 
 struct MemberFunc {
   int x;
-  int getX() const {
-    return x;
-  }
-  void setX(int xx) {
-    x = xx;
-  }
+  int getX() const { return x; }
+  void setX(int xx) { x = xx; }
 };
 
 TEST(Function, DataMember) {
@@ -627,18 +596,10 @@ class CopyMoveTracker {
     return *this;
   }
 
-  size_t copyCount() const {
-    return data_->first;
-  }
-  size_t moveCount() const {
-    return data_->second;
-  }
-  size_t refCount() const {
-    return data_.use_count();
-  }
-  void resetCounters() {
-    data_->first = data_->second = 0;
-  }
+  size_t copyCount() const { return data_->first; }
+  size_t moveCount() const { return data_->second; }
+  size_t refCount() const { return data_.use_count(); }
+  void resetCounters() { data_->first = data_->second = 0; }
 
  private:
   // copy, move
@@ -742,9 +703,7 @@ TEST(Function, ParameterCopyMoveCount) {
 // VariadicTemplate & VariadicArguments
 
 struct VariadicTemplateSum {
-  int operator()() const {
-    return 0;
-  }
+  int operator()() const { return 0; }
   template <class... Args>
   int operator()(int x, Args... args) const {
     return x + (*this)(args...);
@@ -1174,16 +1133,10 @@ TEST(Function, SelfMove2) {
   int alive{0};
   struct arg {
     int* ptr_;
-    explicit arg(int* ptr) noexcept : ptr_(ptr) {
-      ++*ptr_;
-    }
-    arg(arg&& o) noexcept : ptr_(o.ptr_) {
-      ++*ptr_;
-    }
+    explicit arg(int* ptr) noexcept : ptr_(ptr) { ++*ptr_; }
+    arg(arg&& o) noexcept : ptr_(o.ptr_) { ++*ptr_; }
     arg& operator=(arg&&) = delete;
-    ~arg() {
-      --*ptr_;
-    }
+    ~arg() { --*ptr_; }
   };
   EXPECT_EQ(0, alive);
   Function<int()> f = [myarg = arg{&alive}] { return 42; };

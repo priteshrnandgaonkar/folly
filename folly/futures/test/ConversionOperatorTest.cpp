@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
+#include <thread>
+
 #include <folly/futures/Future.h>
 #include <folly/portability/GTest.h>
-
-#include <thread>
 
 using namespace folly;
 
@@ -33,9 +33,7 @@ struct Widget {
   Widget& operator=(Widget&& /* other */) {
     throw std::logic_error("unexpected move assignment");
   }
-  explicit operator int() && {
-    return v_;
-  }
+  explicit operator int() && { return v_; }
 };
 } // namespace
 

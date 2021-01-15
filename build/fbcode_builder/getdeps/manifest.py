@@ -13,6 +13,7 @@ from .builder import (
     Boost,
     CargoBuilder,
     CMakeBuilder,
+    BistroBuilder,
     Iproute2Builder,
     MakeBuilder,
     NinjaBootstrap,
@@ -88,6 +89,7 @@ SCHEMA = {
     "b2.args": {"optional_section": True},
     "make.build_args": {"optional_section": True},
     "make.install_args": {"optional_section": True},
+    "make.test_args": {"optional_section": True},
     "header-only": {"optional_section": True, "fields": {"includedir": REQUIRED}},
     "shipit.pathmap": {"optional_section": True},
     "shipit.strip": {"optional_section": True},
@@ -242,7 +244,7 @@ class ManifestParser(object):
         return defval
 
     def get_section_as_args(self, section, ctx=None):
-        """ Intended for use with the make.[build_args/install_args] and
+        """Intended for use with the make.[build_args/install_args] and
         autoconf.args sections, this method collects the entries and returns an
         array of strings.
         If the manifest contains conditional sections, ctx is used to
@@ -267,8 +269,8 @@ class ManifestParser(object):
         return args
 
     def get_section_as_ordered_pairs(self, section, ctx=None):
-        """ Used for eg: shipit.pathmap which has strong
-        ordering requirements """
+        """Used for eg: shipit.pathmap which has strong
+        ordering requirements"""
         res = []
         ctx = ctx or {}
 
@@ -302,13 +304,13 @@ class ManifestParser(object):
         return d
 
     def update_hash(self, hasher, ctx):
-        """ Compute a hash over the configuration for the given
+        """Compute a hash over the configuration for the given
         context.  The goal is for the hash to change if the config
         for that context changes, but not if a change is made to
         the config only for a different platform than that expressed
         by ctx.  The hash is intended to be used to help invalidate
         a future cache for the third party build products.
-        The hasher argument is a hash object returned from hashlib. """
+        The hasher argument is a hash object returned from hashlib."""
         for section in sorted(SCHEMA.keys()):
             hasher.update(section.encode("utf-8"))
 
@@ -419,18 +421,26 @@ class ManifestParser(object):
         ctx,
         loader,
         final_install_prefix=None,
+        extra_cmake_defines=None,
     ):
         builder = self.get("build", "builder", ctx=ctx)
         if not builder:
             raise Exception("project %s has no builder for %r" % (self.name, ctx))
         build_in_src_dir = self.get("build", "build_in_src_dir", "false", ctx=ctx)
         if build_in_src_dir == "true":
+            # Some scripts don't work when they are configured and build in
+            # a different directory than source (or when the build directory
+            # is not a subdir of source).
             build_dir = src_dir
+            subdir = self.get("build", "subdir", None, ctx=ctx)
+            if subdir is not None:
+                build_dir = os.path.join(build_dir, subdir)
             print("build_dir is %s" % build_dir)  # just to quiet lint
 
         if builder == "make":
             build_args = self.get_section_as_args("make.build_args", ctx)
             install_args = self.get_section_as_args("make.install_args", ctx)
+            test_args = self.get_section_as_args("make.test_args", ctx)
             return MakeBuilder(
                 build_options,
                 ctx,
@@ -440,6 +450,7 @@ class ManifestParser(object):
                 inst_dir,
                 build_args,
                 install_args,
+                test_args,
             )
 
         if builder == "autoconf":
@@ -452,6 +463,16 @@ class ManifestParser(object):
             args = self.get_section_as_args("b2.args", ctx)
             return Boost(build_options, ctx, self, src_dir, build_dir, inst_dir, args)
 
+        if builder == "bistro":
+            return BistroBuilder(
+                build_options,
+                ctx,
+                self,
+                src_dir,
+                build_dir,
+                inst_dir,
+            )
+
         if builder == "cmake":
             defines = self.get_section_as_dict("cmake.defines", ctx)
             return CMakeBuilder(
@@ -463,6 +484,7 @@ class ManifestParser(object):
                 inst_dir,
                 defines,
                 final_install_prefix,
+                extra_cmake_defines,
             )
 
         if builder == "python-wheel":
@@ -515,7 +537,7 @@ class ManifestParser(object):
 
 
 class ManifestContext(object):
-    """ ProjectContext contains a dictionary of values to use when evaluating boolean
+    """ProjectContext contains a dictionary of values to use when evaluating boolean
     expressions in a project manifest.
 
     This object should be passed as the `ctx` parameter in ManifestParser.get() calls.
@@ -545,10 +567,10 @@ class ManifestContext(object):
 
 
 class ContextGenerator(object):
-    """ ContextGenerator allows creating ManifestContext objects on a per-project basis.
+    """ContextGenerator allows creating ManifestContext objects on a per-project basis.
     This allows us to evaluate different projects with slightly different contexts.
 
-    For instance, this can be used to only enable tests for some projects. """
+    For instance, this can be used to only enable tests for some projects."""
 
     def __init__(self, default_ctx):
         self.default_ctx = ManifestContext(default_ctx)

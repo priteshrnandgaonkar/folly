@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
+#include <folly/executors/SerialExecutor.h>
+
 #include <chrono>
 
 #include <folly/ScopeGuard.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/InlineExecutor.h>
-#include <folly/executors/SerialExecutor.h>
 #include <folly/io/async/Request.h>
 #include <folly/portability/GTest.h>
 #include <folly/synchronization/Baton.h>
@@ -40,12 +41,8 @@ void simpleTest(std::shared_ptr<folly::Executor> const& parent) {
       return typeid(SerialExecutorContextData).name();
     }
     explicit SerialExecutorContextData(int id) : id_(id) {}
-    bool hasCallback() override {
-      return false;
-    }
-    int getId() const {
-      return id_;
-    }
+    bool hasCallback() override { return false; }
+    int getId() const { return id_; }
 
    private:
     const int id_;

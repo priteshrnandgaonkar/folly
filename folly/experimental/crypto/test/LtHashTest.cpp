@@ -15,6 +15,7 @@
  */
 
 #include <folly/experimental/crypto/LtHash.h>
+
 #include <folly/Random.h>
 #include <folly/String.h>
 #include <folly/io/IOBuf.h>
@@ -44,16 +45,12 @@ std::unique_ptr<folly::IOBuf> makeRandomData(size_t length) {
 
 template <typename T>
 struct IsLtHash {
-  static inline constexpr bool value() {
-    return false;
-  }
+  static inline constexpr bool value() { return false; }
 };
 
 template <std::size_t B, std::size_t N>
 struct IsLtHash<LtHash<B, N>> {
-  static inline constexpr bool value() {
-    return true;
-  }
+  static inline constexpr bool value() { return true; }
 };
 
 } // namespace

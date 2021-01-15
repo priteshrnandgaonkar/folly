@@ -216,9 +216,19 @@ ElfFile::OpenResult ElfFile::init() noexcept {
   if (std::strncmp(elfMagBuf.data(), ELFMAG, sizeof(ELFMAG)) != 0) {
     return {kInvalidElfFile, "invalid ELF magic"};
   }
+  char c;
+  if (::pread(fd_, &c, 1, length_ - 1) != 1) {
+    auto msg =
+        "The last bit of the mmaped memory is no longer valid. This may be "
+        "caused by the original file being resized, "
+        "deleted or otherwise modified.";
+    return {kInvalidElfFile, msg};
+  }
+
   if (::lseek(fd_, 0, SEEK_SET) != 0) {
-    return {kInvalidElfFile,
-            "unable to reset file descriptor after reading ELF magic number"};
+    return {
+        kInvalidElfFile,
+        "unable to reset file descriptor after reading ELF magic number"};
   }
 
   auto& elfHeader = this->elfHeader();
@@ -285,8 +295,8 @@ const ElfShdr* ElfFile::getSectionByIndex(size_t idx) const noexcept {
   return &at<ElfShdr>(elfHeader().e_shoff + idx * sizeof(ElfShdr));
 }
 
-folly::StringPiece ElfFile::getSectionBody(const ElfShdr& section) const
-    noexcept {
+folly::StringPiece ElfFile::getSectionBody(
+    const ElfShdr& section) const noexcept {
   return folly::StringPiece(file_ + section.sh_offset, section.sh_size);
 }
 
@@ -302,8 +312,8 @@ void ElfFile::validateStringTable(const ElfShdr& stringTable) const noexcept {
       "invalid string table");
 }
 
-const char* ElfFile::getString(const ElfShdr& stringTable, size_t offset) const
-    noexcept {
+const char* ElfFile::getString(const ElfShdr& stringTable, size_t offset)
+    const noexcept {
   validateStringTable(stringTable);
   FOLLY_SAFE_CHECK(
       offset < stringTable.sh_size, "invalid offset in string table");
@@ -338,8 +348,8 @@ const ElfShdr* ElfFile::getSectionByName(const char* name) const noexcept {
   return foundSection;
 }
 
-ElfFile::Symbol ElfFile::getDefinitionByAddress(uintptr_t address) const
-    noexcept {
+ElfFile::Symbol ElfFile::getDefinitionByAddress(
+    uintptr_t address) const noexcept {
   Symbol foundSymbol{nullptr, nullptr};
 
   auto findSection = [&](const ElfShdr& section) {
@@ -406,8 +416,8 @@ ElfFile::Symbol ElfFile::getSymbolByName(const char* name) const noexcept {
   return foundSymbol;
 }
 
-const ElfShdr* ElfFile::getSectionContainingAddress(ElfAddr addr) const
-    noexcept {
+const ElfShdr* ElfFile::getSectionContainingAddress(
+    ElfAddr addr) const noexcept {
   return iterateSections([&](const ElfShdr& sh) -> bool {
     return (addr >= sh.sh_addr) && (addr < (sh.sh_addr + sh.sh_size));
   });

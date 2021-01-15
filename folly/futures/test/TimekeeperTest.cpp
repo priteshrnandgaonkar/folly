@@ -101,17 +101,13 @@ FOLLY_POP_WARNING
 
 TEST(Timekeeper, futureSleepHandlesNullTimekeeperSingleton) {
   Singleton<ThreadWheelTimekeeper>::make_mock([] { return nullptr; });
-  SCOPE_EXIT {
-    Singleton<ThreadWheelTimekeeper>::make_mock();
-  };
+  SCOPE_EXIT { Singleton<ThreadWheelTimekeeper>::make_mock(); };
   EXPECT_THROW(futures::sleep(one_ms).get(), FutureNoTimekeeper);
 }
 
 TEST(Timekeeper, futureWithinHandlesNullTimekeeperSingleton) {
   Singleton<ThreadWheelTimekeeper>::make_mock([] { return nullptr; });
-  SCOPE_EXIT {
-    Singleton<ThreadWheelTimekeeper>::make_mock();
-  };
+  SCOPE_EXIT { Singleton<ThreadWheelTimekeeper>::make_mock(); };
   Promise<int> p;
   auto f = p.getFuture().within(one_ms);
   EXPECT_THROW(std::move(f).get(), FutureNoTimekeeper);
@@ -119,9 +115,7 @@ TEST(Timekeeper, futureWithinHandlesNullTimekeeperSingleton) {
 
 TEST(Timekeeper, semiFutureWithinHandlesNullTimekeeperSingleton) {
   Singleton<ThreadWheelTimekeeper>::make_mock([] { return nullptr; });
-  SCOPE_EXIT {
-    Singleton<ThreadWheelTimekeeper>::make_mock();
-  };
+  SCOPE_EXIT { Singleton<ThreadWheelTimekeeper>::make_mock(); };
   Promise<int> p;
   auto f = p.getSemiFuture().within(one_ms);
   EXPECT_THROW(std::move(f).get(), FutureNoTimekeeper);
@@ -213,9 +207,7 @@ TEST(Timekeeper, futureDelayedStickyExecutor) {
     auto t1 = now();
     class TimekeeperHelper : public ThreadWheelTimekeeper {
      public:
-      std::thread::id get_thread_id() {
-        return thread_.get_id();
-      }
+      std::thread::id get_thread_id() { return thread_.get_id(); }
     };
     TimekeeperHelper tk;
     std::thread::id timekeeper_thread_id = tk.get_thread_id();
@@ -434,25 +426,39 @@ TEST(Timekeeper, semiFutureWithinChainedInterruptTest) {
 TEST(Timekeeper, executor) {
   class ExecutorTester : public DefaultKeepAliveExecutor {
    public:
-    ~ExecutorTester() override {
-      joinKeepAlive();
-    }
     virtual void add(Func f) override {
       count++;
       f();
     }
+    void join() { joinKeepAlive(); }
     std::atomic<int> count{0};
   };
 
-  Promise<Unit> p;
-  ExecutorTester tester;
-  auto f = p.getFuture()
-               .via(&tester)
-               .within(milliseconds(100))
-               .thenValue([&](auto&&) {});
-  p.setValue();
-  f.wait();
-  EXPECT_EQ(2, tester.count);
+  {
+    Promise<Unit> p;
+    ExecutorTester tester;
+    auto f = p.getFuture()
+                 .via(&tester)
+                 .within(std::chrono::seconds(10))
+                 .thenValue([&](auto&&) {});
+    p.setValue();
+    std::move(f).get();
+    tester.join();
+    EXPECT_EQ(3, tester.count);
+  }
+
+  {
+    Promise<Unit> p;
+    ExecutorTester tester;
+    auto f = p.getFuture()
+                 .via(&tester)
+                 .within(std::chrono::milliseconds(10))
+                 .thenValue([&](auto&&) {});
+    EXPECT_THROW(std::move(f).get(), FutureTimeout);
+    p.setValue();
+    tester.join();
+    EXPECT_EQ(3, tester.count);
+  }
 }
 
 // TODO(5921764)

@@ -16,12 +16,13 @@
 
 #pragma once
 
-#include <folly/Synchronized.h>
-#include <folly/io/async/EventBase.h>
 #include <memory>
 #include <mutex>
 #include <unordered_set>
 #include <utility>
+
+#include <folly/Synchronized.h>
+#include <folly/io/async/EventBase.h>
 
 namespace folly {
 
@@ -76,9 +77,7 @@ class EventBaseLocal : public detail::EventBaseLocalBase {
  public:
   EventBaseLocal() : EventBaseLocalBase() {}
 
-  T* get(EventBase& evb) {
-    return static_cast<T*>(getVoid(evb));
-  }
+  T* get(EventBase& evb) { return static_cast<T*>(getVoid(evb)); }
 
   void emplace(EventBase& evb, T* ptr) {
     std::shared_ptr<T> smartPtr(ptr);

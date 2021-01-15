@@ -53,6 +53,8 @@ namespace fibers {
 class Baton;
 class Fiber;
 
+struct TaskOptions;
+
 template <typename T>
 class LocalType {};
 
@@ -223,9 +225,7 @@ class FiberManager : public ::folly::Executor {
    * Does not include the number of remotely enqueued tasks that have not been
    * run yet.
    */
-  size_t numActiveTasks() const noexcept {
-    return fibersActive_;
-  }
+  size_t numActiveTasks() const noexcept { return fibersActive_; }
 
   /**
    * @return true if there are tasks ready to run.
@@ -245,9 +245,10 @@ class FiberManager : public ::folly::Executor {
    *
    * @param func Task functor; must have a signature of `void func()`.
    *             The object will be destroyed once task execution is complete.
+   * @param taskOptions Task specific configs.
    */
   template <typename F>
-  void addTask(F&& func);
+  void addTask(F&& func, TaskOptions taskOptions = TaskOptions());
 
   /**
    * Add a new task to be executed and return a future that will be set on
@@ -305,9 +306,7 @@ class FiberManager : public ::folly::Executor {
       -> folly::Future<folly::lift_unit_t<invoke_result_t<F>>>;
 
   // Executor interface calls addTaskRemote
-  void add(folly::Func f) override {
-    addTaskRemote(std::move(f));
-  }
+  void add(folly::Func f) override { addTaskRemote(std::move(f)); }
 
   /**
    * Add a new task. When the task is complete, execute finally(Try<Result>&&)
@@ -370,16 +369,22 @@ class FiberManager : public ::folly::Executor {
   size_t fibersPoolSize() const;
 
   /**
-   * return     true if running activeFiber_ is not nullptr.
+   * @return true if running activeFiber_ is not nullptr.
    */
   bool hasActiveFiber() const;
 
   /**
+   * @return How long has the currently running task on the fiber ran, in
+   * terms of wallclock time. This excludes the time spent in preempted or
+   * waiting stages. This only works if TaskOptions.logRunningTime is true
+   * during addTask().
+   */
+  folly::Optional<std::chrono::nanoseconds> getCurrentTaskRunningTime() const;
+
+  /**
    * @return The currently running fiber or null if no fiber is executing.
    */
-  Fiber* currentFiber() const {
-    return currentFiber_;
-  }
+  Fiber* currentFiber() const { return currentFiber_; }
 
   /**
    * @return What was the most observed fiber stack usage (in bytes).
@@ -424,9 +429,7 @@ class FiberManager : public ::folly::Executor {
   static FiberManager& getFiberManager();
   static FiberManager* getFiberManagerUnsafe();
 
-  const Options& getOptions() const {
-    return options_;
-  }
+  const Options& getOptions() const { return options_; }
 
  private:
   friend class Baton;
@@ -452,7 +455,7 @@ class FiberManager : public ::folly::Executor {
   };
 
   template <typename F>
-  Fiber* createTask(F&& func);
+  Fiber* createTask(F&& func, TaskOptions taskOptions);
 
   template <typename F, typename G>
   Fiber* createTaskFinally(F&& func, G&& finally);
@@ -581,9 +584,7 @@ class FiberManager : public ::folly::Executor {
 
    private:
     FiberManager& fiberManager_;
-    void timeoutExpired() noexcept {
-      run();
-    }
+    void timeoutExpired() noexcept { run(); }
     void callbackCanceled() noexcept {}
   };
 

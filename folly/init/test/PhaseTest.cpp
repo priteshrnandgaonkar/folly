@@ -16,23 +16,19 @@
 
 #include <folly/init/Phase.h>
 
-#include <folly/Singleton.h>
-#include <folly/portability/GTest.h>
+#include <thread>
 
 #include <glog/logging.h>
 
-#include <thread>
+#include <folly/Singleton.h>
+#include <folly/portability/GTest.h>
 
 /// Types
 
 struct Global {
-  Global() {
-    CHECK(folly::get_process_phase() == folly::ProcessPhase::Init);
-  }
+  Global() { CHECK(folly::get_process_phase() == folly::ProcessPhase::Init); }
 
-  ~Global() {
-    CHECK(folly::get_process_phase() >= folly::ProcessPhase::Exit);
-  }
+  ~Global() { CHECK(folly::get_process_phase() >= folly::ProcessPhase::Exit); }
 };
 
 /// Variables

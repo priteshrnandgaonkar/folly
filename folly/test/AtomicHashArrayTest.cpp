@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
+#include <folly/AtomicHashArray.h>
+
 #include <cstddef>
 #include <map>
 #include <memory>
 #include <stdexcept>
 
-#include <folly/AtomicHashArray.h>
 #include <folly/Conv.h>
 #include <folly/Memory.h>
 #include <folly/hash/Hash.h>
@@ -42,17 +43,11 @@ class MmapAllocator {
   typedef ptrdiff_t difference_type;
   typedef size_t size_type;
 
-  T* address(T& x) const {
-    return std::addressof(x);
-  }
+  T* address(T& x) const { return std::addressof(x); }
 
-  const T* address(const T& x) const {
-    return std::addressof(x);
-  }
+  const T* address(const T& x) const { return std::addressof(x); }
 
-  size_t max_size() const {
-    return std::numeric_limits<size_t>::max();
-  }
+  size_t max_size() const { return std::numeric_limits<size_t>::max(); }
 
   template <class U>
   struct rebind {
@@ -63,18 +58,14 @@ class MmapAllocator {
     return !(*this == other);
   }
 
-  bool operator==(const MmapAllocator<T>& /* other */) const {
-    return true;
-  }
+  bool operator==(const MmapAllocator<T>& /* other */) const { return true; }
 
   template <class... Args>
   void construct(T* p, Args&&... args) {
     new (p) T(std::forward<Args>(args)...);
   }
 
-  void destroy(T* p) {
-    p->~T();
-  }
+  void destroy(T* p) { p->~T(); }
 
   T* allocate(size_t n) {
     void* p = mmap(
@@ -90,9 +81,7 @@ class MmapAllocator {
     return (T*)p;
   }
 
-  void deallocate(T* p, size_t n) {
-    munmap(p, n * sizeof(T));
-  }
+  void deallocate(T* p, size_t n) { munmap(p, n * sizeof(T)); }
 };
 
 template <class KeyT, class ValueT>
@@ -352,9 +341,7 @@ struct HashTraits {
     }
     return result;
   }
-  size_t operator()(const char& a) {
-    return static_cast<size_t>(a);
-  }
+  size_t operator()(const char& a) { return static_cast<size_t>(a); }
   size_t operator()(const StringPiece a) {
     size_t result = 0;
     for (const auto& ch : a) {
@@ -366,12 +353,8 @@ struct HashTraits {
 
 // Creates malloc'ed null-terminated strings.
 struct KeyConvertTraits {
-  char* operator()(const char& a) {
-    return strndup(&a, 1);
-  }
-  char* operator()(const StringPiece a) {
-    return strndup(a.begin(), a.size());
-  }
+  char* operator()(const char& a) { return strndup(&a, 1); }
+  char* operator()(const StringPiece a) { return strndup(a.begin(), a.size()); }
 };
 
 typedef AtomicHashArray<
@@ -394,9 +377,7 @@ TEST(Aha, LookupAny) {
   auto arr = AHACstrInt::create(12);
 
   char* f_char = strdup("f");
-  SCOPE_EXIT {
-    free(f_char);
-  };
+  SCOPE_EXIT { free(f_char); };
   arr->insert(std::make_pair(f_char, 42));
 
   EXPECT_EQ(42, arr->find("f")->second);

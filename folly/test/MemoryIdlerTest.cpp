@@ -16,12 +16,12 @@
 
 #include <folly/detail/MemoryIdler.h>
 
+#include <memory>
+#include <thread>
+
 #include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
 #include <folly/synchronization/Baton.h>
-
-#include <memory>
-#include <thread>
 
 using namespace folly;
 using namespace folly::detail;
@@ -66,9 +66,7 @@ struct MockClock {
     return rv;
   }
 
-  static time_point now() {
-    return s_mockClockInstance.lock()->nowImpl();
-  }
+  static time_point now() { return s_mockClockInstance.lock()->nowImpl(); }
 
   static std::weak_ptr<StrictMock<MockClock>> s_mockClockInstance;
 };

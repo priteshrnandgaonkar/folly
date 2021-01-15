@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
+#include <folly/logging/CustomLogFormatter.h>
+
 #include <cstdlib>
 
 #include <folly/Format.h>
 #include <folly/init/Init.h>
-#include <folly/logging/CustomLogFormatter.h>
 #include <folly/logging/LogMessage.h>
 #include <folly/logging/Logger.h>
 #include <folly/logging/LoggerDB.h>
@@ -64,13 +65,14 @@ std::string formatMsg(
   std::chrono::system_clock::time_point logTimePoint{
       std::chrono::duration_cast<std::chrono::system_clock::duration>(
           std::chrono::nanoseconds{timestampNS})};
-  LogMessage logMessage{category,
-                        level,
-                        logTimePoint,
-                        filename,
-                        lineNumber,
-                        functionName,
-                        msg.str()};
+  LogMessage logMessage{
+      category,
+      level,
+      logTimePoint,
+      filename,
+      lineNumber,
+      functionName,
+      msg.str()};
 
   return formatter.formatMessage(logMessage, category);
 }

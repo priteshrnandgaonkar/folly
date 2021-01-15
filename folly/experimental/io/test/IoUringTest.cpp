@@ -36,15 +36,14 @@ INSTANTIATE_TYPED_TEST_CASE_P(AsyncBatchTest, AsyncBatchTest, BatchIoUring);
 TEST(IoUringTest, RegisteredBuffers) {
   constexpr size_t kNumEntries = 2;
   constexpr size_t kBufSize = 4096;
-  IoUring ioUring(kNumEntries, folly::AsyncBase::NOT_POLLABLE);
+  auto ioUring = getAIO<IoUring>(kNumEntries, folly::AsyncBase::NOT_POLLABLE);
+  SKIP_IF(!ioUring) << "IOUring not available";
 
   auto tempFile = folly::test::TempFileUtil::getTempFile(kDefaultFileSize);
   int fd = ::open(tempFile.path().c_str(), O_DIRECT | O_RDWR);
   SKIP_IF(fd == -1) << "Tempfile can't be opened with O_DIRECT: "
                     << folly::errnoStr(errno);
-  SCOPE_EXIT {
-    ::close(fd);
-  };
+  SCOPE_EXIT { ::close(fd); };
 
   folly::test::async_base_test_lib_detail::TestUtil::ManagedBuffer
       regFdWriteBuf =
@@ -67,7 +66,7 @@ TEST(IoUringTest, RegisteredBuffers) {
   iov[1].iov_base = regFdReadBuf.get();
   iov[1].iov_len = kBufSize;
 
-  CHECK_EQ(ioUring.register_buffers(iov, 2), 0);
+  CHECK_EQ(ioUring->register_buffers(iov, 2), 0);
 
   IoUring::Op regFdWriteOp, readOp, regFdReadOp;
   size_t completed = 0;
@@ -83,17 +82,17 @@ TEST(IoUringTest, RegisteredBuffers) {
   regFdReadOp.pread(fd, regFdReadBuf.get(), kBufSize, 0, 1 /*buf_index*/);
 
   // write
-  ioUring.submit(&regFdWriteOp);
-  ioUring.wait(1);
+  ioUring->submit(&regFdWriteOp);
+  ioUring->wait(1);
   CHECK_EQ(completed, 1);
   CHECK_EQ(regFdWriteOp.result(), kBufSize);
 
   // read - both via regular and registered buffers
   completed = 0;
-  ioUring.submit(&readOp);
-  ioUring.submit(&regFdReadOp);
+  ioUring->submit(&readOp);
+  ioUring->submit(&regFdReadOp);
 
-  ioUring.wait(kNumEntries);
+  ioUring->wait(kNumEntries);
 
   CHECK_EQ(completed, kNumEntries);
   CHECK_EQ(readOp.result(), kBufSize);
@@ -107,17 +106,3 @@ TEST(IoUringTest, RegisteredBuffers) {
 } // namespace async_base_test_lib_detail
 } // namespace test
 } // namespace folly
-
-int main(int argc, char** argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  folly::init(&argc, &argv);
-
-  bool avail = IoUring::isAvailable();
-  if (!avail) {
-    LOG(INFO)
-        << "Not running tests since this kernel version does not support io_uring";
-    return 0;
-  }
-
-  return RUN_ALL_TESTS();
-}

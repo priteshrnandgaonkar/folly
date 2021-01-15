@@ -76,7 +76,8 @@ TEST(F14Map, customSwap) {
 }
 
 template <
-    template <typename, typename, typename, typename, typename> class TMap,
+    template <typename, typename, typename, typename, typename>
+    class TMap,
     typename K,
     typename V>
 void runAllocatedMemorySizeTest() {
@@ -1891,18 +1892,12 @@ namespace {
 struct A {
   int value;
 
-  bool operator==(A const& rhs) const {
-    return value == rhs.value;
-  }
-  bool operator!=(A const& rhs) const {
-    return !(*this == rhs);
-  }
+  bool operator==(A const& rhs) const { return value == rhs.value; }
+  bool operator!=(A const& rhs) const { return !(*this == rhs); }
 };
 
 struct AHasher {
-  std::size_t operator()(A const& v) const {
-    return v.value;
-  }
+  std::size_t operator()(A const& v) const { return v.value; }
 };
 
 template <typename T>
@@ -1913,9 +1908,7 @@ struct B {
 
   /* implicit */ B(A const& v) : value(v.value) {}
 
-  /* implicit */ operator A() const {
-    return A{value};
-  }
+  /* implicit */ operator A() const { return A{value}; }
 };
 
 struct C {
@@ -2119,9 +2112,7 @@ struct DivideBy {
   // this is a lie for testing purposes
   using folly_is_avalanching = std::true_type;
 
-  std::size_t operator()(std::size_t v) const {
-    return v / N;
-  }
+  std::size_t operator()(std::size_t v) const { return v / N; }
 };
 } // namespace
 

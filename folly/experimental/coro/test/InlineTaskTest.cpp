@@ -120,9 +120,7 @@ struct MoveOnlyType {
     return *this;
   }
 
-  ~MoveOnlyType() {
-    value_ = -2;
-  }
+  ~MoveOnlyType() { value_ = -2; }
 };
 
 struct TypeWithImplicitSingleValueConstructor {
@@ -132,7 +130,7 @@ struct TypeWithImplicitSingleValueConstructor {
 
 TEST_F(InlineTaskTest, ReturnValueWithInitializerListSyntax) {
   auto f = []() -> InlineTask<TypeWithImplicitSingleValueConstructor> {
-    co_return{1.23f};
+    co_return {1.23f};
   };
 
   auto result = folly::coro::blockingWait(f());
@@ -150,7 +148,7 @@ struct TypeWithImplicitMultiValueConstructor {
 
 TEST_F(InlineTaskTest, ReturnValueWithInitializerListSyntax2) {
   auto f = []() -> InlineTask<TypeWithImplicitMultiValueConstructor> {
-    co_return{"hello", 3.1415f};
+    co_return {"hello", 3.1415f};
   };
 
   auto result = folly::coro::blockingWait(f());
@@ -232,7 +230,7 @@ struct ThrowingCopyConstructor {
 };
 
 TEST_F(InlineTaskTest, ExceptionsPropagateFromReturnValueConstructor) {
-  auto f = []() -> InlineTask<ThrowingCopyConstructor> { co_return{}; };
+  auto f = []() -> InlineTask<ThrowingCopyConstructor> { co_return {}; };
   EXPECT_THROW(folly::coro::blockingWait(f()), MyException);
 }
 

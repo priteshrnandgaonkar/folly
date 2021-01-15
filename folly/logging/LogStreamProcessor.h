@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <cstdlib>
+
 #include <fmt/core.h>
 #include <folly/CPortability.h>
 #include <folly/Conv.h>
@@ -26,7 +28,6 @@
 #include <folly/logging/LogMessage.h>
 #include <folly/logging/LogStream.h>
 #include <folly/logging/ObjectToString.h>
-#include <cstdlib>
 
 namespace folly {
 
@@ -276,9 +277,7 @@ class LogStreamProcessor {
    */
   void operator&(LogStream&& stream) noexcept;
 
-  std::ostream& stream() noexcept {
-    return stream_;
-  }
+  std::ostream& stream() noexcept { return stream_; }
 
   void logNow() noexcept;
 
@@ -435,7 +434,7 @@ class LogStreamVoidify {
    * eliminated by the compiler, leaving only the LogStreamProcessor destructor
    * invocation, which cannot be eliminated.
    */
-  void operator&(std::ostream&)noexcept {}
+  void operator&(std::ostream&) noexcept {}
 };
 
 template <>

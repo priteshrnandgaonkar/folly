@@ -54,12 +54,14 @@ class F14BasicSet
  private:
   template <typename K, typename T>
   using EnableHeterogeneousFind = std::enable_if_t<
-      EligibleForHeterogeneousFind<key_type, hasher, key_equal, K>::value,
+      ::folly::detail::
+          EligibleForHeterogeneousFind<key_type, hasher, key_equal, K>::value,
       T>;
 
   template <typename K, typename T>
   using EnableHeterogeneousInsert = std::enable_if_t<
-      EligibleForHeterogeneousInsert<key_type, hasher, key_equal, K>::value,
+      ::folly::detail::
+          EligibleForHeterogeneousInsert<key_type, hasher, key_equal, K>::value,
       T>;
 
   template <typename K>
@@ -69,7 +71,7 @@ class F14BasicSet
 
   template <typename K, typename T>
   using EnableHeterogeneousErase = std::enable_if_t<
-      EligibleForHeterogeneousFind<
+      ::folly::detail::EligibleForHeterogeneousFind<
           key_type,
           hasher,
           key_equal,
@@ -101,7 +103,7 @@ class F14BasicSet
 
  private:
   template <typename Arg>
-  using UsableAsKey =
+  using UsableAsKey = ::folly::detail::
       EligibleForHeterogeneousFind<key_type, hasher, key_equal, Arg>;
 
  public:
@@ -226,9 +228,7 @@ class F14BasicSet
     return findImpl<const_iterator>(*this, key);
   }
 
-  bool contains(key_type const& key) const {
-    return find(key) != this->end();
-  }
+  bool contains(key_type const& key) const { return find(key) != this->end(); }
 
   template <typename K>
   EnableHeterogeneousFind<K, bool> contains(K const& key) const {
@@ -276,9 +276,7 @@ class F14BasicSet
 
   // converts const_iterator to iterator when they are the same type
   // such as in libc++
-  iterator citerToIter(iterator it) {
-    return it;
-  }
+  iterator citerToIter(iterator it) { return it; }
 
  public:
   template <typename BeforeDestroy>

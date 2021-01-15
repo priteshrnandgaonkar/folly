@@ -15,9 +15,11 @@
  */
 
 #include <folly/lang/UncaughtExceptions.h>
+
+#include <glog/logging.h>
+
 #include <folly/Conv.h>
 #include <folly/portability/GTest.h>
-#include <glog/logging.h>
 
 /*
  * Test helper class, when goes out of scope it validaes that
@@ -30,9 +32,7 @@ class Validator {
       : expectedCount_(expectedCount), msg_(msg) {}
 
   // Automatic validation during destruction.
-  ~Validator() {
-    validate();
-  }
+  ~Validator() { validate(); }
 
   // Invoke to validate explicitly.
   void validate() {

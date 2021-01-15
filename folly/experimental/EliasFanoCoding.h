@@ -28,6 +28,8 @@
 #include <limits>
 #include <type_traits>
 
+#include <glog/logging.h>
+
 #include <folly/Likely.h>
 #include <folly/Portability.h>
 #include <folly/Range.h>
@@ -36,7 +38,6 @@
 #include <folly/experimental/Select64.h>
 #include <folly/lang/Assume.h>
 #include <folly/lang/Bits.h>
-#include <glog/logging.h>
 
 #if !FOLLY_X64
 #error EliasFanoCoding.h requires x86_64
@@ -256,9 +257,9 @@ struct EliasFanoEncoderV2<
 
     // *** Validity checks.
     // Shift by numLowerBits must be valid.
-    CHECK_LT(numLowerBits, 8 * sizeof(Value));
+    CHECK_LT(static_cast<int>(numLowerBits), 8 * sizeof(Value));
     CHECK_LT(size, std::numeric_limits<SkipValueType>::max());
-    CHECK_LT(
+    CHECK_LE(
         upperBound >> numLowerBits, std::numeric_limits<SkipValueType>::max());
 
     return fromInternalSizes(numLowerBits, upper, size);
@@ -377,13 +378,9 @@ class UpperBitsReader : ForwardPointers<Encoder::forwardQuantum>,
     value_ = 0;
   }
 
-  FOLLY_ALWAYS_INLINE SizeType position() const {
-    return position_;
-  }
+  FOLLY_ALWAYS_INLINE SizeType position() const { return position_; }
 
-  FOLLY_ALWAYS_INLINE ValueType value() const {
-    return value_;
-  }
+  FOLLY_ALWAYS_INLINE ValueType value() const { return value_; }
 
   FOLLY_ALWAYS_INLINE ValueType previous() {
     size_t inner;
@@ -464,7 +461,10 @@ class UpperBitsReader : ForwardPointers<Encoder::forwardQuantum>,
 
     // Skip by blocks.
     size_t cnt;
-    size_t skip = v - (8 * outer_ - position_ - 1);
+    // outer_ and position_ rely on negative sentinel values. We enforce the
+    // overflown bits are dropped by explicitly casting the final value to
+    // SizeType first, followed by a potential implicit cast to size_t.
+    size_t skip = static_cast<SizeType>(v - (8 * outer_ - position_ - 1));
 
     constexpr size_t kBitsPerBlock = 8 * sizeof(block_t);
     while ((cnt = Instructions::popcount(~block_)) < skip) {
@@ -535,9 +535,7 @@ class UpperBitsReader : ForwardPointers<Encoder::forwardQuantum>,
     return (start_[bitPos / 8] & (1 << (bitPos % 8))) == 0;
   }
 
-  FOLLY_ALWAYS_INLINE void setDone(SizeType endPos) {
-    position_ = endPos;
-  }
+  FOLLY_ALWAYS_INLINE void setDone(SizeType endPos) { position_ = endPos; }
 
  private:
   using block_t = uint64_t;
@@ -769,17 +767,13 @@ class EliasFanoReader {
         (upper_.previousValue() << numLowerBits_);
   }
 
-  SizeType size() const {
-    return size_;
-  }
+  SizeType size() const { return size_; }
 
   bool valid() const {
     return position() < size(); // Also checks that position() != -1.
   }
 
-  SizeType position() const {
-    return upper_.position();
-  }
+  SizeType position() const { return upper_.position(); }
 
   ValueType value() const {
     DCHECK(valid());

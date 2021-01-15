@@ -16,13 +16,13 @@
 
 #pragma once
 
+#include <memory>
+
 #include <folly/io/async/AsyncSocket.h>
 #include <folly/io/async/test/BlockingSocket.h>
 #include <folly/net/NetOps.h>
 #include <folly/net/NetworkSocket.h>
 #include <folly/portability/Sockets.h>
-
-#include <memory>
 
 enum StateEnum { STATE_WAITING, STATE_SUCCEEDED, STATE_FAILED };
 
@@ -55,12 +55,16 @@ class ConnCallback : public folly::AsyncSocket::ConnectCallback {
   VoidCallback errorCallback;
 };
 
-class WriteCallback : public folly::AsyncTransport::WriteCallback {
+class WriteCallback : public folly::AsyncTransport::WriteCallback,
+                      public folly::AsyncWriter::ReleaseIOBufCallback {
  public:
-  WriteCallback()
+  explicit WriteCallback(bool enableReleaseIOBufCallback = false)
       : state(STATE_WAITING),
         bytesWritten(0),
-        exception(folly::AsyncSocketException::UNKNOWN, "none") {}
+        numIoBufCount(0),
+        numIoBufBytes(0),
+        exception(folly::AsyncSocketException::UNKNOWN, "none"),
+        releaseIOBufCallback(enableReleaseIOBufCallback ? this : nullptr) {}
 
   void writeSuccess() noexcept override {
     state = STATE_SUCCEEDED;
@@ -81,11 +85,24 @@ class WriteCallback : public folly::AsyncTransport::WriteCallback {
     }
   }
 
+  folly::AsyncWriter::ReleaseIOBufCallback* getReleaseIOBufCallback() noexcept
+      override {
+    return releaseIOBufCallback;
+  }
+
+  void releaseIOBuf(std::unique_ptr<folly::IOBuf> ioBuf) noexcept override {
+    numIoBufCount += ioBuf->countChainElements();
+    numIoBufBytes += ioBuf->computeChainDataLength();
+  }
+
   StateEnum state;
   std::atomic<size_t> bytesWritten;
+  std::atomic<size_t> numIoBufCount;
+  std::atomic<size_t> numIoBufBytes;
   folly::AsyncSocketException exception;
   VoidCallback successCallback;
   VoidCallback errorCallback;
+  ReleaseIOBufCallback* releaseIOBufCallback;
 };
 
 class ReadCallback : public folly::AsyncTransport::ReadCallback {
@@ -120,9 +137,7 @@ class ReadCallback : public folly::AsyncTransport::ReadCallback {
     }
   }
 
-  void readEOF() noexcept override {
-    state = STATE_SUCCEEDED;
-  }
+  void readEOF() noexcept override { state = STATE_SUCCEEDED; }
 
   void readErr(const folly::AsyncSocketException& ex) noexcept override {
     state = STATE_FAILED;
@@ -204,13 +219,9 @@ class BufferCallback : public folly::AsyncTransport::BufferCallback {
     bufferCleared_ = true;
   }
 
-  bool hasBuffered() const {
-    return buffered_;
-  }
+  bool hasBuffered() const { return buffered_; }
 
-  bool hasBufferCleared() const {
-    return bufferCleared_;
-  }
+  bool hasBufferCleared() const { return bufferCleared_; }
 
  private:
   folly::AsyncSocket* socket_{nullptr};
@@ -239,9 +250,8 @@ class TestSendMsgParamsCallback
     queriedData_ = false;
   }
 
-  int getFlagsImpl(
-      folly::WriteFlags flags,
-      int /*defaultFlags*/) noexcept override {
+  int getFlagsImpl(folly::WriteFlags flags, int /*defaultFlags*/) noexcept
+      override {
     queriedFlags_ = true;
     if (writeFlags_ == folly::WriteFlags::NONE) {
       writeFlags_ = flags;
@@ -319,9 +329,7 @@ class TestServer {
           errno);
     }
 
-    SCOPE_EXIT {
-      freeaddrinfo(res);
-    };
+    SCOPE_EXIT { freeaddrinfo(res); };
 
     if (bufSize > 0) {
       folly::netops::setsockopt(
@@ -357,9 +365,7 @@ class TestServer {
   }
 
   // Get the address for connecting to the server
-  const folly::SocketAddress& getAddress() const {
-    return address_;
-  }
+  const folly::SocketAddress& getAddress() const { return address_; }
 
   folly::NetworkSocket acceptFD(int timeout = 50) {
     folly::netops::PollDescriptor pfd;

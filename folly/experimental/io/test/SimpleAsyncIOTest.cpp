@@ -15,6 +15,7 @@
  */
 
 #include <folly/experimental/io/SimpleAsyncIO.h>
+
 #include <folly/File.h>
 #include <folly/synchronization/Baton.h>
 
@@ -29,9 +30,7 @@ using namespace folly;
 
 class SimpleAsyncIOTest : public ::testing::TestWithParam<SimpleAsyncIO::Mode> {
  public:
-  void SetUp() override {
-    config_.setMode(GetParam());
-  }
+  void SetUp() override { config_.setMode(GetParam()); }
 
   static std::string testTypeToString(
       testing::TestParamInfo<SimpleAsyncIO::Mode> const& setting) {

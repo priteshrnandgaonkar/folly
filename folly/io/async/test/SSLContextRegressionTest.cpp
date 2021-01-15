@@ -15,18 +15,16 @@
  */
 
 #include <folly/FileUtil.h>
+#include <folly/experimental/TestUtil.h>
 #include <folly/io/async/SSLContext.h>
-#include <gtest/gtest.h>
-#include "common/files/FileUtil.h"
+#include <folly/portability/GTest.h>
 
-using namespace facebook::files;
-
+using namespace folly;
+using namespace folly::test;
 /*
  * This test is meant to verify that SSLContext correctly sets its minimum
  * protocol version and is not blocked by OpenSSL's default config.
  */
-namespace folly {
-
 // need OpenSSL version 1.1.1 for the SSL_CTX_get_min_proto_version function
 // should reduce this prereq's scope if new tests are added that don't need it
 #if FOLLY_OPENSSL_PREREQ(1, 1, 1)
@@ -44,12 +42,12 @@ const std::string kOpenSSLConf = folly::stripLeftMargin(R"(
 class SSLContextRegressionTest : public testing::Test {
  public:
   void SetUp() override {
-    TemporaryFile confFile(nullptr, "", true);
-    FileUtil::writeStringToFile(StringPiece(kOpenSSLConf), confFile.filename());
+    TemporaryFile confFile{};
+    writeFile(StringPiece(kOpenSSLConf), confFile.path().c_str());
 
     // simulate the system environment by loading a config file that should
     // represent the CentOS 8 configuration
-    int result = CONF_modules_load_file(confFile.filename(), nullptr, 0);
+    int result = CONF_modules_load_file(confFile.path().c_str(), nullptr, 0);
     ASSERT_EQ(result, 1) << "Failed to load OpenSSL conf from temporary file.";
   }
 };
@@ -60,7 +58,4 @@ TEST_F(SSLContextRegressionTest, IsNotAffectedBySystemEnvironment) {
   auto ctx = std::make_shared<SSLContext>(SSLContext::SSLVersion::TLSv1);
   ASSERT_EQ(SSL_CTX_get_min_proto_version(ctx->getSSLCtx()), TLS1_VERSION);
 }
-
 #endif
-
-} // namespace folly

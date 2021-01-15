@@ -16,11 +16,9 @@
 
 #include <folly/io/async/AsyncSSLSocket.h>
 
-#include <folly/io/async/EventBase.h>
-#include <folly/portability/Sockets.h>
-
 #include <fcntl.h>
 #include <sys/types.h>
+
 #include <cerrno>
 #include <chrono>
 #include <memory>
@@ -33,9 +31,11 @@
 #include <folly/io/Cursor.h>
 #include <folly/io/IOBuf.h>
 #include <folly/io/SocketOptionMap.h>
+#include <folly/io/async/EventBase.h>
 #include <folly/io/async/ssl/BasicTransportCertificate.h>
 #include <folly/lang/Bits.h>
 #include <folly/portability/OpenSSL.h>
+#include <folly/portability/Sockets.h>
 #include <folly/ssl/SSLSession.h>
 #include <folly/ssl/SSLSessionManager.h>
 
@@ -898,15 +898,7 @@ void AsyncSSLSocket::startSSLConnect() {
   handleConnect();
 }
 
-SSL_SESSION* AsyncSSLSocket::getSSLSession() {
-  if (ssl_ != nullptr && sslState_ == STATE_ESTABLISHED) {
-    return SSL_get1_session(ssl_.get());
-  }
-
-  return sslSessionManager_.getRawSession().release();
-}
-
-shared_ptr<ssl::SSLSession> AsyncSSLSocket::getSSLSessionV2() {
+shared_ptr<ssl::SSLSession> AsyncSSLSocket::getSSLSession() {
   return sslSessionManager_.getSession();
 }
 
@@ -914,17 +906,8 @@ const SSL* AsyncSSLSocket::getSSL() const {
   return ssl_.get();
 }
 
-void AsyncSSLSocket::setSSLSession(SSL_SESSION* session, bool takeOwnership) {
-  if (!takeOwnership && session != nullptr) {
-    // Increment the reference count
-    // This API exists in BoringSSL and OpenSSL 1.1.0
-    SSL_SESSION_up_ref(session);
-  }
-  sslSessionManager_.setRawSession(SSLSessionUniquePtr(session));
-}
-
-void AsyncSSLSocket::setSSLSessionV2(shared_ptr<ssl::SSLSession> session) {
-  sslSessionManager_.setSession(session);
+void AsyncSSLSocket::setSSLSession(shared_ptr<ssl::SSLSession> session) {
+  sslSessionManager_.setSession(std::move(session));
 }
 
 void AsyncSSLSocket::setRawSSLSession(SSLSessionUniquePtr session) {

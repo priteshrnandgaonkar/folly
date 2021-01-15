@@ -15,11 +15,12 @@
  */
 
 #include <folly/io/async/AsyncPipe.h>
+
+#include <fcntl.h>
+
 #include <folly/Memory.h>
 #include <folly/io/async/EventBase.h>
 #include <folly/portability/GTest.h>
-
-#include <fcntl.h>
 
 using namespace testing;
 
@@ -27,12 +28,8 @@ namespace {
 
 class TestReadCallback : public folly::AsyncReader::ReadCallback {
  public:
-  bool isBufferMovable() noexcept override {
-    return movable_;
-  }
-  void setMovable(bool movable) {
-    movable_ = movable;
-  }
+  bool isBufferMovable() noexcept override { return movable_; }
+  void setMovable(bool movable) { movable_ = movable; }
 
   void readBufferAvailable(
       std::unique_ptr<folly::IOBuf> readBuf) noexcept override {
@@ -74,9 +71,7 @@ class TestReadCallback : public folly::AsyncReader::ReadCallback {
 
 class TestWriteCallback : public folly::AsyncWriter::WriteCallback {
  public:
-  void writeSuccess() noexcept override {
-    writes_++;
-  }
+  void writeSuccess() noexcept override { writes_++; }
 
   void writeErr(size_t, const folly::AsyncSocketException&) noexcept override {
     error_ = true;

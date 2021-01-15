@@ -16,6 +16,11 @@
 
 #include <folly/detail/MemoryIdler.h>
 
+#include <climits>
+#include <cstdio>
+#include <cstring>
+#include <utility>
+
 #include <folly/GLog.h>
 #include <folly/Portability.h>
 #include <folly/ScopeGuard.h>
@@ -26,11 +31,6 @@
 #include <folly/portability/SysMman.h>
 #include <folly/portability/Unistd.h>
 #include <folly/synchronization/CallOnce.h>
-
-#include <climits>
-#include <cstdio>
-#include <cstring>
-#include <utility>
 
 namespace folly {
 namespace detail {
@@ -105,9 +105,7 @@ static void fetchStackLimits() {
     tls_stackSize = 1;
     return;
   }
-  SCOPE_EXIT {
-    pthread_attr_destroy(&attr);
-  };
+  SCOPE_EXIT { pthread_attr_destroy(&attr); };
 
   void* addr;
   size_t rawSize;

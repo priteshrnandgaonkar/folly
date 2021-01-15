@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
+#include <folly/Executor.h>
+
 #include <atomic>
 
-#include <folly/Executor.h>
 #include <folly/portability/GTest.h>
 
 namespace folly {
@@ -32,9 +33,7 @@ class KeepAliveTestExecutor : public Executor {
     return true;
   }
 
-  void keepAliveRelease() noexcept override {
-    --refCount;
-  }
+  void keepAliveRelease() noexcept override { --refCount; }
 
   std::atomic<int> refCount{0};
 };

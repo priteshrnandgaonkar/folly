@@ -44,7 +44,7 @@ struct S {
 };
 
 coro::Task<S> taskS() {
-  co_return{};
+  co_return {};
 }
 
 coro::Task<int> task42() {
@@ -153,9 +153,7 @@ struct CountingExecutor : public ManualExecutor {
     return true;
   }
 
-  void keepAliveRelease() noexcept override {
-    --keepAliveCounter;
-  }
+  void keepAliveRelease() noexcept override { --keepAliveCounter; }
 
   size_t keepAliveCounter{0};
 };
@@ -356,19 +354,28 @@ TEST_F(CoroTest, TimedWaitKeepAlive) {
   EXPECT_LE(duration, std::chrono::seconds{30});
 }
 
+TEST_F(CoroTest, TimedWaitNonCopyable) {
+  auto task = []() -> coro::Task<std::unique_ptr<int>> {
+    co_return std::make_unique<int>(42);
+  }();
+  EXPECT_EQ(
+      42,
+      **coro::blockingWait(
+          [&]() -> coro::Task<folly::Optional<std::unique_ptr<int>>> {
+            co_return co_await coro::timed_wait(
+                std::move(task), std::chrono::seconds{60});
+          }()));
+}
+
 template <int value>
 struct AwaitableInt {
-  bool await_ready() const {
-    return true;
-  }
+  bool await_ready() const { return true; }
 
   bool await_suspend(std::experimental::coroutine_handle<>) {
     LOG(FATAL) << "Should never be called.";
   }
 
-  int await_resume() {
-    return value;
-  }
+  int await_resume() { return value; }
 };
 
 struct AwaitableWithOperator {};
@@ -386,9 +393,7 @@ TEST_F(CoroTest, AwaitableWithOperator) {
 }
 
 struct AwaitableWithMemberOperator {
-  AwaitableInt<42> operator co_await() {
-    return {};
-  }
+  AwaitableInt<42> operator co_await() { return {}; }
 };
 
 AwaitableInt<24> operator co_await(const AwaitableWithMemberOperator&) {
@@ -617,19 +622,21 @@ TEST_F(CoroTest, CancellableSleep) {
   CancellationSource cancelSrc;
 
   auto start = steady_clock::now();
-  coro::blockingWait([&]() -> coro::Task<void> {
-    co_await coro::collectAll(
-        [&]() -> coro::Task<void> {
-          co_await coro::co_withCancellation(
-              cancelSrc.getToken(), coro::sleep(10s));
-        }(),
-        [&]() -> coro::Task<void> {
-          co_await coro::co_reschedule_on_current_executor;
-          co_await coro::co_reschedule_on_current_executor;
-          co_await coro::co_reschedule_on_current_executor;
-          cancelSrc.requestCancellation();
-        }());
-  }());
+  EXPECT_THROW(
+      coro::blockingWait([&]() -> coro::Task<void> {
+        co_await coro::collectAll(
+            [&]() -> coro::Task<void> {
+              co_await coro::co_withCancellation(
+                  cancelSrc.getToken(), coro::sleep(10s));
+            }(),
+            [&]() -> coro::Task<void> {
+              co_await coro::co_reschedule_on_current_executor;
+              co_await coro::co_reschedule_on_current_executor;
+              co_await coro::co_reschedule_on_current_executor;
+              cancelSrc.requestCancellation();
+            }());
+      }()),
+      OperationCancelled);
   auto end = steady_clock::now();
   CHECK((end - start) < 1s);
 }

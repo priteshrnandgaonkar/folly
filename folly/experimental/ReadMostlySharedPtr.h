@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-/* -*- Mode: C++; tab-width: 2; c-basic-offset: 2; indent-tabs-mode: nil -*- */
 #pragma once
 
 #include <atomic>
@@ -39,13 +38,9 @@ namespace detail {
 template <typename RefCount = DefaultRefCount>
 class ReadMostlySharedPtrCore {
  public:
-  std::shared_ptr<const void> getShared() {
-    return ptr_;
-  }
+  std::shared_ptr<const void> getShared() { return ptr_; }
 
-  bool incref() {
-    return ++count_ > 0;
-  }
+  bool incref() { return ++count_ > 0; }
 
   void decref() {
     if (--count_ == 0) {
@@ -66,9 +61,7 @@ class ReadMostlySharedPtrCore {
     }
   }
 
-  size_t useCount() const {
-    return *count_;
-  }
+  size_t useCount() const { return *count_; }
 
   ~ReadMostlySharedPtrCore() noexcept {
     assert(*count_ == 0);
@@ -95,9 +88,7 @@ class ReadMostlyMainPtr {
  public:
   ReadMostlyMainPtr() {}
 
-  explicit ReadMostlyMainPtr(std::shared_ptr<T> ptr) {
-    reset(std::move(ptr));
-  }
+  explicit ReadMostlyMainPtr(std::shared_ptr<T> ptr) { reset(std::move(ptr)); }
 
   ReadMostlyMainPtr(const ReadMostlyMainPtr&) = delete;
   ReadMostlyMainPtr& operator=(const ReadMostlyMainPtr&) = delete;
@@ -116,17 +107,13 @@ class ReadMostlyMainPtr {
     return get() == other.get();
   }
 
-  bool operator==(T* other) const {
-    return get() == other;
-  }
+  bool operator==(T* other) const { return get() == other; }
 
   bool operator==(const ReadMostlySharedPtr<T, RefCount>& other) const {
     return get() == other.get();
   }
 
-  ~ReadMostlyMainPtr() noexcept {
-    reset();
-  }
+  ~ReadMostlyMainPtr() noexcept { reset(); }
 
   void reset() noexcept {
     if (impl_) {
@@ -146,9 +133,7 @@ class ReadMostlyMainPtr {
     }
   }
 
-  T* get() const {
-    return ptrRaw_;
-  }
+  T* get() const { return ptrRaw_; }
 
   std::shared_ptr<T> getStdShared() const {
     if (impl_) {
@@ -158,21 +143,15 @@ class ReadMostlyMainPtr {
     }
   }
 
-  T& operator*() const {
-    return *get();
-  }
+  T& operator*() const { return *get(); }
 
-  T* operator->() const {
-    return get();
-  }
+  T* operator->() const { return get(); }
 
   ReadMostlySharedPtr<T, RefCount> getShared() const {
     return ReadMostlySharedPtr<T, RefCount>(*this);
   }
 
-  explicit operator bool() const {
-    return impl_ != nullptr;
-  }
+  explicit operator bool() const { return impl_ != nullptr; }
 
  private:
   template <typename U, typename RefCount2>
@@ -190,9 +169,7 @@ class ReadMostlyWeakPtr {
  public:
   ReadMostlyWeakPtr() {}
 
-  ReadMostlyWeakPtr(const ReadMostlyWeakPtr& other) {
-    *this = other;
-  }
+  ReadMostlyWeakPtr(const ReadMostlyWeakPtr& other) { *this = other; }
 
   ReadMostlyWeakPtr(ReadMostlyWeakPtr&& other) noexcept {
     *this = std::move(other);
@@ -273,9 +250,7 @@ class ReadMostlyWeakPtr {
     return *this;
   }
 
-  ~ReadMostlyWeakPtr() noexcept {
-    reset(nullptr, nullptr);
-  }
+  ~ReadMostlyWeakPtr() noexcept { reset(nullptr, nullptr); }
 
   ReadMostlySharedPtr<T, RefCount> lock() {
     return ReadMostlySharedPtr<T, RefCount>(*this);
@@ -311,9 +286,7 @@ class ReadMostlySharedPtr {
  public:
   ReadMostlySharedPtr() {}
 
-  ReadMostlySharedPtr(const ReadMostlySharedPtr& other) {
-    *this = other;
-  }
+  ReadMostlySharedPtr(const ReadMostlySharedPtr& other) { *this = other; }
 
   ReadMostlySharedPtr(ReadMostlySharedPtr&& other) noexcept {
     *this = std::move(other);
@@ -395,29 +368,21 @@ class ReadMostlySharedPtr {
     return *this;
   }
 
-  ~ReadMostlySharedPtr() noexcept {
-    reset(nullptr, nullptr);
-  }
+  ~ReadMostlySharedPtr() noexcept { reset(nullptr, nullptr); }
 
   bool operator==(const ReadMostlyMainPtr<T, RefCount>& other) const {
     return get() == other.get();
   }
 
-  bool operator==(T* other) const {
-    return get() == other;
-  }
+  bool operator==(T* other) const { return get() == other; }
 
   bool operator==(const ReadMostlySharedPtr<T, RefCount>& other) const {
     return get() == other.get();
   }
 
-  void reset() {
-    reset(nullptr, nullptr);
-  }
+  void reset() { reset(nullptr, nullptr); }
 
-  T* get() const {
-    return ptrRaw_;
-  }
+  T* get() const { return ptrRaw_; }
 
   std::shared_ptr<T> getStdShared() const {
     if (impl_) {
@@ -427,25 +392,15 @@ class ReadMostlySharedPtr {
     }
   }
 
-  T& operator*() const {
-    return *get();
-  }
+  T& operator*() const { return *get(); }
 
-  T* operator->() const {
-    return get();
-  }
+  T* operator->() const { return get(); }
 
-  size_t use_count() const {
-    return impl_->useCount();
-  }
+  size_t use_count() const { return impl_->useCount(); }
 
-  bool unique() const {
-    return use_count() == 1;
-  }
+  bool unique() const { return use_count() == 1; }
 
-  explicit operator bool() const {
-    return impl_ != nullptr;
-  }
+  explicit operator bool() const { return impl_ != nullptr; }
 
  private:
   template <typename U, typename RefCount2>

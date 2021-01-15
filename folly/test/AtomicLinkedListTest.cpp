@@ -14,18 +14,17 @@
  * limitations under the License.
  */
 
+#include <folly/AtomicLinkedList.h>
+
 #include <algorithm>
 #include <thread>
 
-#include <folly/AtomicLinkedList.h>
 #include <folly/portability/GTest.h>
 
 class TestIntrusiveObject {
  public:
   explicit TestIntrusiveObject(size_t id__) : id_(id__) {}
-  size_t id() {
-    return id_;
-  }
+  size_t id() { return id_; }
 
  private:
   folly::AtomicIntrusiveLinkedListHook<TestIntrusiveObject> hook_;
@@ -178,9 +177,7 @@ class TestObject {
   TestObject(size_t id__, const std::shared_ptr<void>& ptr)
       : id_(id__), ptr_(ptr) {}
 
-  size_t id() {
-    return id_;
-  }
+  size_t id() { return id_; }
 
  private:
   size_t id_;

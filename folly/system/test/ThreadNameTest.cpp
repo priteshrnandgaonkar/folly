@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
+#include <folly/system/ThreadName.h>
+
 #include <thread>
 
 #include <folly/ScopeGuard.h>
 #include <folly/portability/GTest.h>
 #include <folly/synchronization/Baton.h>
-#include <folly/system/ThreadName.h>
 
 using namespace std;
 using namespace folly;
@@ -39,9 +40,7 @@ TEST(ThreadName, getCurrentThreadName) {
       EXPECT_EQ(kThreadName.toString(), *getCurrentThreadName());
     }
   });
-  SCOPE_EXIT {
-    th.join();
-  };
+  SCOPE_EXIT { th.join(); };
 }
 
 #if FOLLY_HAVE_PTHREAD
@@ -54,13 +53,9 @@ TEST(ThreadName, setThreadName_other_pthread) {
     handle_set.post();
     let_thread_end.wait();
   });
-  SCOPE_EXIT {
-    th.join();
-  };
+  SCOPE_EXIT { th.join(); };
   handle_set.wait();
-  SCOPE_EXIT {
-    let_thread_end.post();
-  };
+  SCOPE_EXIT { let_thread_end.post(); };
   EXPECT_EQ(
       expectedSetOtherThreadNameResult, setThreadName(handle, kThreadName));
 }
@@ -69,12 +64,8 @@ TEST(ThreadName, setThreadName_other_pthread) {
 TEST(ThreadName, setThreadName_other_id) {
   Baton<> let_thread_end;
   thread th([&] { let_thread_end.wait(); });
-  SCOPE_EXIT {
-    th.join();
-  };
-  SCOPE_EXIT {
-    let_thread_end.post();
-  };
+  SCOPE_EXIT { th.join(); };
+  SCOPE_EXIT { let_thread_end.post(); };
   EXPECT_EQ(
       expectedSetOtherThreadNameResult,
       setThreadName(th.get_id(), kThreadName));

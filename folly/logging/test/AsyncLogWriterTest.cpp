@@ -16,11 +16,12 @@
 
 #include <folly/logging/AsyncLogWriter.h>
 
+#include <iostream>
+
 #include <folly/logging/LoggerDB.h>
 #include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
 #include <folly/test/TestUtils.h>
-#include <iostream>
 
 using namespace folly;
 
@@ -40,9 +41,7 @@ void handleLoggingError(
 class NoCleanUpLogWriter : public AsyncLogWriter {
   void performIO(const std::vector<std::string>&, size_t) override {}
 
-  bool ttyOutput() const override {
-    return false;
-  }
+  bool ttyOutput() const override { return false; }
 };
 } // namespace
 

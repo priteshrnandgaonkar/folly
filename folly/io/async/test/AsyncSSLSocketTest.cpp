@@ -16,24 +16,6 @@
 
 #include <folly/io/async/test/AsyncSSLSocketTest.h>
 
-#include <folly/SocketAddress.h>
-#include <folly/String.h>
-#include <folly/io/Cursor.h>
-#include <folly/io/async/AsyncPipe.h>
-#include <folly/io/async/AsyncSSLSocket.h>
-#include <folly/io/async/EventBase.h>
-#include <folly/io/async/EventBaseThread.h>
-#include <folly/io/async/ScopedEventBaseThread.h>
-#include <folly/net/NetOps.h>
-#include <folly/net/NetworkSocket.h>
-#include <folly/portability/GMock.h>
-#include <folly/portability/GTest.h>
-#include <folly/portability/OpenSSL.h>
-#include <folly/portability/Unistd.h>
-#include <folly/ssl/Init.h>
-
-#include <folly/io/async/test/BlockingSocket.h>
-
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -43,6 +25,23 @@
 #include <list>
 #include <set>
 #include <thread>
+
+#include <folly/SocketAddress.h>
+#include <folly/String.h>
+#include <folly/io/Cursor.h>
+#include <folly/io/async/AsyncPipe.h>
+#include <folly/io/async/AsyncSSLSocket.h>
+#include <folly/io/async/EventBase.h>
+#include <folly/io/async/EventBaseThread.h>
+#include <folly/io/async/ScopedEventBaseThread.h>
+#include <folly/io/async/test/BlockingSocket.h>
+#include <folly/net/NetOps.h>
+#include <folly/net/NetworkSocket.h>
+#include <folly/portability/GMock.h>
+#include <folly/portability/GTest.h>
+#include <folly/portability/OpenSSL.h>
+#include <folly/portability/Unistd.h>
+#include <folly/ssl/Init.h>
 
 #ifdef __linux__
 #include <dlfcn.h>
@@ -75,9 +74,7 @@ struct GlobalStatic {
   GlobalStatic() {
     real_setsockopt_ = (setsockopt_ptr)dlsym(RTLD_NEXT, "setsockopt");
   }
-  void reset() noexcept {
-    ttlsDisabledSet.clear();
-  }
+  void reset() noexcept { ttlsDisabledSet.clear(); }
   // for each fd, tracks whether TTLS is disabled or not
   std::unordered_set<folly::NetworkSocket /* fd */> ttlsDisabledSet;
 };
@@ -484,9 +481,7 @@ TEST(AsyncSSLSocketTest, SocketWithDelay) {
 class NextProtocolTest : public Test {
   // For matching protos
  public:
-  void SetUp() override {
-    getctx(clientCtx, serverCtx);
-  }
+  void SetUp() override { getctx(clientCtx, serverCtx); }
 
   void connect(bool unset = false) {
     getfds(fds);
@@ -837,9 +832,7 @@ class PerLoopReadCallback : public AsyncTransport::ReadCallback {
 
   void readEOF() noexcept override {}
 
-  void setSocket(AsyncSocket* s) {
-    s_ = s;
-  }
+  void setSocket(AsyncSocket* s) { s_ = s; }
 
  private:
   AsyncSocket* s_;
@@ -1057,9 +1050,7 @@ TEST(AsyncSSLSocketTest, SSLParseClientHelloOnePacket) {
   cursor.write<uint32_t>(0);
 
   SSL* ssl = ctx->createSSL();
-  SCOPE_EXIT {
-    SSL_free(ssl);
-  };
+  SCOPE_EXIT { SSL_free(ssl); };
   AsyncSSLSocket::UniquePtr sock(
       new AsyncSSLSocket(ctx, &eventBase, fds[0], true));
   sock->enableClientHelloParsing();
@@ -1099,9 +1090,7 @@ TEST(AsyncSSLSocketTest, SSLParseClientHelloTwoPackets) {
   cursor.write<uint32_t>(0);
 
   SSL* ssl = ctx->createSSL();
-  SCOPE_EXIT {
-    SSL_free(ssl);
-  };
+  SCOPE_EXIT { SSL_free(ssl); };
   AsyncSSLSocket::UniquePtr sock(
       new AsyncSSLSocket(ctx, &eventBase, fds[0], true));
   sock->enableClientHelloParsing();
@@ -1158,9 +1147,7 @@ TEST(AsyncSSLSocketTest, SSLParseClientHelloMultiplePackets) {
   cursor.write<uint32_t>(0);
 
   SSL* ssl = ctx->createSSL();
-  SCOPE_EXIT {
-    SSL_free(ssl);
-  };
+  SCOPE_EXIT { SSL_free(ssl); };
   AsyncSSLSocket::UniquePtr sock(
       new AsyncSSLSocket(ctx, &eventBase, fds[0], true));
   sock->enableClientHelloParsing();
@@ -1449,92 +1436,22 @@ TEST(
   serverSock->sslAccept(nullptr, std::chrono::milliseconds::zero());
 
   StrictMock<MockHandshakeCB> clientHandshakeCB;
+
+  // Force the end entity certificate, which normally is successfully verified,
+  // to be considered as unsuccessful
   EXPECT_CALL(clientHandshakeCB, handshakeVerImpl(clientSock.get(), true, _))
-      // CA root certificate succeeds
-      .WillOnce(Return(true))
-      // leaf fails
-      .WillOnce(Return(false));
+      .Times(AtLeast(1))
+      .WillRepeatedly(Invoke([&](auto&&, bool preverifyOk, auto&& ctx) {
+        auto currentDepth = X509_STORE_CTX_get_error_depth(ctx);
+        if (currentDepth == 0) {
+          EXPECT_TRUE(preverifyOk);
+          return false;
+        }
+        return preverifyOk;
+      }));
 
   // failure callback to verify handshake failed
-  EXPECT_CALL(clientHandshakeCB, handshakeErrImpl(clientSock.get(), _))
-      .WillOnce(Return());
-
-  clientSock->sslConn(&clientHandshakeCB);
-
-  eventBase.loop();
-
-  clientSock->close();
-  serverSock->close();
-}
-
-MATCHER_P(
-    hasError,
-    error,
-    "X509_STORE_CTX matcher to check for verification error code") {
-  return X509_STORE_CTX_get_error(arg) == error;
-}
-
-/**
- * Verify that the client CertificateIdentityVerifier is not invoked if
- * OpenSSL preverify fails but HandshakeCB::handshakeVer succeeds.
- */
-TEST(
-    AsyncSSLSocketTest,
-    SSLCertificateIdentityVerifierHandshakeCBOverrideOpenSSLResult) {
-  EventBase eventBase;
-  auto clientCtx = std::make_shared<folly::SSLContext>();
-  auto serverCtx = std::make_shared<folly::SSLContext>();
-  getctx(clientCtx, serverCtx);
-  // the client socket will default to USE_CTX, so set VERIFY here
-  clientCtx->setVerificationOption(SSLContext::SSLVerifyPeerEnum::VERIFY);
-  // DO NOT load root certificate, will cause X509 chain validation error
-
-  NetworkSocket fds[2];
-  getfds(fds);
-
-  AsyncSocket::UniquePtr rawClient(new AsyncSocket(&eventBase, fds[0]));
-  AsyncSocket::UniquePtr rawServer(new AsyncSocket(&eventBase, fds[1]));
-
-  // should not be invoked
-  std::shared_ptr<StrictMock<MockCertificateIdentityVerifier>> verifier =
-      std::make_shared<StrictMock<MockCertificateIdentityVerifier>>();
-
-  AsyncSSLSocket::Options clientOpts;
-  clientOpts.verifier = verifier;
-
-  AsyncSSLSocket::Options serverOpts;
-  serverOpts.isServer = true;
-
-  AsyncSSLSocket::UniquePtr clientSock(new AsyncSSLSocket(
-      clientCtx, std::move(rawClient), std::move(clientOpts)));
-  AsyncSSLSocket::UniquePtr serverSock(new AsyncSSLSocket(
-      serverCtx, std::move(rawServer), std::move(serverOpts)));
-
-  serverSock->sslAccept(nullptr, std::chrono::milliseconds::zero());
-
-  StrictMock<MockHandshakeCB> clientHandshakeCB;
-  // first OpenSSL failure
-  EXPECT_CALL(
-      clientHandshakeCB,
-      handshakeVerImpl(
-          clientSock.get(),
-          false,
-          hasError(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY)))
-      // overwrite OpenSSL error
-      .WillOnce(Return(true));
-  // second OpenSSL failure
-  EXPECT_CALL(
-      clientHandshakeCB,
-      handshakeVerImpl(
-          clientSock.get(),
-          false,
-          hasError(X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE)))
-      // overwrite OpenSSL error
-      .WillOnce(Return(true));
-
-  // success callback to confirm handshake succeeded
-  EXPECT_CALL(clientHandshakeCB, handshakeSucImpl(clientSock.get()))
-      .WillOnce(Return());
+  EXPECT_CALL(clientHandshakeCB, handshakeErrImpl(clientSock.get(), _));
 
   clientSock->sslConn(&clientHandshakeCB);
 
@@ -2699,7 +2616,8 @@ TEST(AsyncSSLSocketTest, TTLSDisabled) {
 
 class MockAsyncTFOSSLSocket : public AsyncSSLSocket {
  public:
-  using UniquePtr = std::unique_ptr<MockAsyncTFOSSLSocket, Destructor>;
+  using UniquePtr =
+      std::unique_ptr<MockAsyncTFOSSLSocket, ReleasableDestructor>;
 
   explicit MockAsyncTFOSSLSocket(
       std::shared_ptr<folly::SSLContext> sslCtx,
@@ -2821,9 +2739,7 @@ TEST(AsyncSSLSocketTest, ConnectWriteReadCloseTFOWithTFOServerDisabled) {
 
 class ConnCallback : public AsyncSocket::ConnectCallback {
  public:
-  void connectSuccess() noexcept override {
-    state = State::SUCCESS;
-  }
+  void connectSuccess() noexcept override { state = State::SUCCESS; }
 
   void connectErr(const AsyncSocketException& ex) noexcept override {
     state = State::ERROR;
@@ -3182,7 +3098,7 @@ TEST(AsyncSSLSocketTest, TestSNIClientHelloBehavior) {
 
   clientCtx->setSessionCacheContext("test context");
   clientCtx->setVerificationOption(SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
-  SSL_SESSION* resumptionSession = nullptr;
+  std::shared_ptr<folly::ssl::SSLSession> resumptionSession = nullptr;
 
   {
     std::array<NetworkSocket, 2> fds;
@@ -3222,7 +3138,7 @@ TEST(AsyncSSLSocketTest, TestSNIClientHelloBehavior) {
     AsyncSSLSocket::UniquePtr serverSock(
         new AsyncSSLSocket(serverCtx, &eventBase, fds[1], true));
 
-    clientSock->setSSLSession(resumptionSession, true);
+    clientSock->setSSLSession(resumptionSession);
     clientSock->setServerName("Baz");
     SSLHandshakeServerParseClientHello server(
         std::move(serverSock), true, true);
@@ -3262,9 +3178,7 @@ TEST(AsyncSSLSocketTest, TestSNIClientHelloBehavior) {
 ///////////////////////////////////////////////////////////////////////////
 namespace {
 struct Initializer {
-  Initializer() {
-    signal(SIGPIPE, SIG_IGN);
-  }
+  Initializer() { signal(SIGPIPE, SIG_IGN); }
 };
 Initializer initializer;
 } // namespace

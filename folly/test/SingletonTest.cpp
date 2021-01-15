@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
+#include <folly/Singleton.h>
+
 #include <thread>
 
 #include <boost/thread/barrier.hpp>
 #include <glog/logging.h>
 
-#include <folly/Singleton.h>
 #include <folly/experimental/io/FsUtil.h>
 #include <folly/io/async/EventBase.h>
 #include <folly/portability/GMock.h>
@@ -451,9 +452,7 @@ TEST(Singleton, SingletonDependencies) {
 // dependency.
 class Slowpoke : public Watchdog {
  public:
-  Slowpoke() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
+  Slowpoke() { std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
 };
 
 struct ConcurrencyTag {};
@@ -562,8 +561,7 @@ TEST(Singleton, SingletonEagerInitSync) {
   auto sing = SingletonEagerInitSync<std::string>([&] {
                 didEagerInit = true;
                 return new std::string("foo");
-              })
-                  .shouldEagerInit();
+              }).shouldEagerInit();
   vault.registrationComplete();
   EXPECT_FALSE(didEagerInit);
   vault.doEagerInit();
@@ -582,8 +580,7 @@ TEST(Singleton, SingletonEagerInitAsync) {
   auto sing = SingletonEagerInitAsync<std::string>([&] {
                 didEagerInit = true;
                 return new std::string("foo");
-              })
-                  .shouldEagerInit();
+              }).shouldEagerInit();
   folly::EventBase eb;
   folly::Baton<> done;
   vault.registrationComplete();
@@ -646,8 +643,7 @@ TEST(Singleton, SingletonEagerInitParallel) {
   auto sing = SingletonEagerInitParallel<std::string>([&] {
                 ++initCounter;
                 return new std::string("");
-              })
-                  .shouldEagerInit();
+              }).shouldEagerInit();
 
   for (size_t i = 0; i < kIters; i++) {
     SCOPE_EXIT {
@@ -856,13 +852,9 @@ using SingletonMainThreadDestructor =
     Singleton<T, Tag, MainThreadDestructorTag>;
 
 struct ThreadLoggingSingleton {
-  ThreadLoggingSingleton() {
-    initThread = std::this_thread::get_id();
-  }
+  ThreadLoggingSingleton() { initThread = std::this_thread::get_id(); }
 
-  ~ThreadLoggingSingleton() {
-    destroyThread = std::this_thread::get_id();
-  }
+  ~ThreadLoggingSingleton() { destroyThread = std::this_thread::get_id(); }
 
   static std::thread::id initThread;
   static std::thread::id destroyThread;
@@ -927,12 +919,8 @@ TEST(Singleton, DoubleMakeMockAfterTryGet) {
   struct VaultTag {};
   struct PrivateTag {};
   struct Object {
-    explicit Object(Counts& counts) : counts_(counts) {
-      ++counts_.ctor;
-    }
-    ~Object() {
-      ++counts_.dtor;
-    }
+    explicit Object(Counts& counts) : counts_(counts) { ++counts_.ctor; }
+    ~Object() { ++counts_.dtor; }
     Counts& counts_;
   };
   using SingletonObject = Singleton<Object, PrivateTag, VaultTag>;
@@ -975,12 +963,8 @@ TEST(Singleton, DoubleMakeMockAfterTryGetWithApply) {
   struct VaultTag {};
   struct PrivateTag {};
   struct Object {
-    explicit Object(Counts& counts) : counts_(counts) {
-      ++counts_.ctor;
-    }
-    ~Object() {
-      ++counts_.dtor;
-    }
+    explicit Object(Counts& counts) : counts_(counts) { ++counts_.ctor; }
+    ~Object() { ++counts_.dtor; }
     Counts& counts_;
   };
   using SingletonObject = Singleton<Object, PrivateTag, VaultTag>;
@@ -1074,4 +1058,40 @@ TEST(Singleton, ShutdownTimerDisable) {
   SingletonObject::try_get()->shutdownDuration = 100ms;
   vault.startShutdownTimer();
   vault.destroyInstances();
+}
+
+TEST(Singleton, ForkInChild) {
+  struct VaultTag {};
+  struct PrivateTag {};
+  struct ForkObject {};
+  using SingletonObject = Singleton<ForkObject, PrivateTag, VaultTag>;
+
+  auto& vault = *SingletonVault::singleton<VaultTag>();
+  vault.setFailOnUseAfterFork(true);
+  SingletonObject object;
+  vault.registrationComplete();
+
+  // We use EXPECT_DEATH here to run code in the child process.
+  EXPECT_DEATH(
+      [&]() {
+        object.try_get();
+        vault.destroyInstances();
+
+        LOG(FATAL) << "Finished successfully";
+      }(),
+      "Finished successfully");
+
+  object.try_get();
+
+  if (!folly::kIsDebug) {
+    return;
+  }
+
+  EXPECT_DEATH(
+      [&]() { object.try_get(); }(),
+      "Attempting to use singleton .*ForkObject.* in child process");
+
+  EXPECT_DEATH(
+      [&]() { vault.destroyInstances(); }(),
+      "Attempting to destroy singleton .*ForkObject.* in child process");
 }

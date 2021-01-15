@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
+#include <folly/functional/Partial.h>
+
 #include <memory>
 
 #include <folly/Function.h>
-#include <folly/functional/Partial.h>
-
 #include <folly/portability/GTest.h>
 
 using folly::partial;
@@ -42,9 +42,7 @@ TEST(Partial, Simple) {
 }
 
 struct Foo {
-  int method(int& x, int& y, int& z) {
-    return 1000 + 100 * x + 10 * y + z;
-  }
+  int method(int& x, int& y, int& z) { return 1000 + 100 * x + 10 * y + z; }
   int constMethod(int const& x, int const& y, int const& z) const {
     return 2000 + 100 * x + 10 * y + z;
   }
@@ -66,15 +64,11 @@ TEST(Partial, ReferenceArguments) {
 }
 
 struct RefQualifiers {
-  int operator()(int x, int y, int z) & {
-    return 1000 + 100 * x + 10 * y + z;
-  }
+  int operator()(int x, int y, int z) & { return 1000 + 100 * x + 10 * y + z; }
   int operator()(int x, int y, int z) const& {
     return 2000 + 100 * x + 10 * y + z;
   }
-  int operator()(int x, int y, int z) && {
-    return 3000 + 100 * x + 10 * y + z;
-  }
+  int operator()(int x, int y, int z) && { return 3000 + 100 * x + 10 * y + z; }
 };
 
 TEST(Partial, RefQualifiers) {

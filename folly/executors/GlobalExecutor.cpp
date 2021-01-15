@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <folly/executors/GlobalExecutor.h>
+
 #include <memory>
 #include <thread>
 
@@ -22,7 +24,6 @@
 #include <folly/Singleton.h>
 #include <folly/detail/AsyncTrace.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
-#include <folly/executors/GlobalExecutor.h>
 #include <folly/executors/IOExecutor.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
 #include <folly/system/HardwareConcurrency.h>
@@ -36,9 +37,7 @@ class GlobalTag {};
 // aka InlineExecutor
 class DefaultCPUExecutor : public Executor {
  public:
-  FOLLY_NOINLINE void add(Func f) override {
-    f();
-  }
+  FOLLY_NOINLINE void add(Func f) override { f(); }
 };
 
 Singleton<std::shared_ptr<DefaultCPUExecutor>> gDefaultGlobalCPUExecutor([] {
@@ -131,10 +130,15 @@ LeakySingleton<GlobalExecutor<IOExecutor>> gGlobalIOExecutor([] {
       // Default global IO executor is an IOThreadPoolExecutor.
       [] { return getImmutable<IOExecutor>(); });
 });
-
 } // namespace
 
 namespace folly {
+
+namespace detail {
+std::shared_ptr<Executor> tryGetImmutableCPUPtr() {
+  return getImmutable<Executor>();
+}
+} // namespace detail
 
 Executor::KeepAlive<> getGlobalCPUExecutor() {
   auto executorPtrPtr = getImmutablePtrPtr<Executor>();
