@@ -286,10 +286,11 @@ namespace {
 
 NestedCommandLineParseResult doParseNestedCommandLine(
     po::command_line_parser&& parser,
-    const po::options_description& desc) {
+    const po::options_description& desc,
+    boost::program_options::command_line_style::style_t style) {
   NestedCommandLineParseResult result;
 
-  result.options = parser.options(desc).allow_unregistered().run();
+  result.options = parser.options(desc).style(style).allow_unregistered().run();
 
   bool setCommand = true;
   for (auto& opt : result.options.options) {
@@ -322,14 +323,18 @@ NestedCommandLineParseResult doParseNestedCommandLine(
 NestedCommandLineParseResult parseNestedCommandLine(
     int argc,
     const char* const argv[],
-    const po::options_description& desc) {
-  return doParseNestedCommandLine(po::command_line_parser(argc, argv), desc);
+    const po::options_description& desc,
+    boost::program_options::command_line_style::style_t style) {
+  return doParseNestedCommandLine(
+      po::command_line_parser(argc, argv), desc, style);
 }
 
 NestedCommandLineParseResult parseNestedCommandLine(
     const std::vector<std::string>& cmdline,
-    const po::options_description& desc) {
-  return doParseNestedCommandLine(po::command_line_parser(cmdline), desc);
+    const po::options_description& desc,
+    boost::program_options::command_line_style::style_t style) {
+  return doParseNestedCommandLine(
+      po::command_line_parser(cmdline), desc, style);
 }
 
 } // namespace folly

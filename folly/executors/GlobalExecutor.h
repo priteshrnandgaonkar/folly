@@ -25,7 +25,7 @@ namespace folly {
 
 namespace detail {
 std::shared_ptr<Executor> tryGetImmutableCPUPtr();
-}
+} // namespace detail
 
 /**
  * Return the global executor.
@@ -41,7 +41,7 @@ folly::Executor::KeepAlive<> getGlobalCPUExecutor();
  *
  * May return an invalid KeepAlive on shutdown.
  */
-folly::Executor::KeepAlive<> getGlobalIOExecutor();
+folly::Executor::KeepAlive<IOExecutor> getGlobalIOExecutor();
 
 /**
  * Retrieve the global Executor. If there is none, a default InlineExecutor

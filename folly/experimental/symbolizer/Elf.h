@@ -100,13 +100,11 @@ class ElfFile {
   };
   // Open the ELF file. Does not throw on error.
   OpenResult openNoThrow(
-      const char* name,
-      Options const& options = Options()) noexcept;
+      const char* name, Options const& options = Options()) noexcept;
 
   // Like openNoThrow, but follow .gnu_debuglink if present
   OpenResult openAndFollow(
-      const char* name,
-      Options const& options = Options()) noexcept;
+      const char* name, Options const& options = Options()) noexcept;
 
   // Open the ELF file. Throws on error.
   void open(const char* name, Options const& options = Options());
@@ -138,8 +136,8 @@ class ElfFile {
   folly::StringPiece getSectionBody(const ElfShdr& section) const noexcept;
 
   /** Retrieve a string from a string table section */
-  const char* getString(const ElfShdr& stringTable, size_t offset)
-      const noexcept;
+  const char* getString(
+      const ElfShdr& stringTable, size_t offset) const noexcept;
 
   /**
    * Iterate over all strings in a string table section for as long as
@@ -183,8 +181,8 @@ class ElfFile {
    */
   template <class Fn>
   const ElfShdr* iterateSectionsWithTypes(
-      std::initializer_list<uint32_t> types,
-      Fn fn) const noexcept(is_nothrow_invocable_v<Fn, ElfShdr const&>);
+      std::initializer_list<uint32_t> types, Fn fn) const
+      noexcept(is_nothrow_invocable_v<Fn, ElfShdr const&>);
 
   /**
    * Iterate over all symbols witin a given section.
@@ -196,8 +194,8 @@ class ElfFile {
   const ElfSym* iterateSymbols(const ElfShdr& section, Fn fn) const
       noexcept(is_nothrow_invocable_v<Fn, ElfSym const&>);
   template <class Fn>
-  const ElfSym*
-  iterateSymbolsWithType(const ElfShdr& section, uint32_t type, Fn fn) const
+  const ElfSym* iterateSymbolsWithType(
+      const ElfShdr& section, uint32_t type, Fn fn) const
       noexcept(is_nothrow_invocable_v<Fn, ElfSym const&>);
   template <class Fn>
   const ElfSym* iterateSymbolsWithTypes(
@@ -274,20 +272,16 @@ class ElfFile {
   template <class T>
   const T& at(ElfOff offset) const noexcept {
     static_assert(std::is_pod<T>::value, "non-pod");
-    if (offset + sizeof(T) > length_) {
-      char msg[kFilepathMaxLen + 128];
-      snprintf(
-          msg,
-          sizeof(msg),
-          "Offset (%zu + %zu) is not contained within our mmapped"
-          " file (%s) of length %zu",
-          static_cast<size_t>(offset),
-          sizeof(T),
-          filepath_,
-          length_);
-      FOLLY_SAFE_CHECK(offset + sizeof(T) <= length_, msg);
-    }
-
+    FOLLY_SAFE_CHECK(
+        offset + sizeof(T) <= length_,
+        "Offset (",
+        static_cast<size_t>(offset),
+        " + ",
+        sizeof(T),
+        ") is not contained within our mapped file (",
+        filepath_,
+        ") of length ",
+        length_);
     return *reinterpret_cast<T*>(file_ + offset);
   }
 

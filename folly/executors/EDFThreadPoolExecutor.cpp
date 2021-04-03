@@ -242,8 +242,7 @@ class EDFThreadPoolExecutor::TaskQueue {
 };
 
 EDFThreadPoolExecutor::EDFThreadPoolExecutor(
-    std::size_t numThreads,
-    std::shared_ptr<ThreadFactory> threadFactory)
+    std::size_t numThreads, std::shared_ptr<ThreadFactory> threadFactory)
     : ThreadPoolExecutor(numThreads, numThreads, std::move(threadFactory)),
       taskQueue_(std::make_unique<TaskQueue>()) {
   setNumThreads(numThreads);
@@ -299,8 +298,7 @@ folly::Executor::KeepAlive<> EDFThreadPoolExecutor::deadlineExecutor(
   class DeadlineExecutor : public folly::Executor {
    public:
     static KeepAlive<> create(
-        uint64_t deadline,
-        KeepAlive<EDFThreadPoolExecutor> executor) {
+        uint64_t deadline, KeepAlive<EDFThreadPoolExecutor> executor) {
       return makeKeepAlive(new DeadlineExecutor(deadline, std::move(executor)));
     }
 
@@ -326,8 +324,7 @@ folly::Executor::KeepAlive<> EDFThreadPoolExecutor::deadlineExecutor(
 
    private:
     DeadlineExecutor(
-        uint64_t deadline,
-        KeepAlive<EDFThreadPoolExecutor> executor)
+        uint64_t deadline, KeepAlive<EDFThreadPoolExecutor> executor)
         : deadline_(deadline), executor_(std::move(executor)) {}
 
     std::atomic<size_t> keepAliveCount_{1};
@@ -372,34 +369,22 @@ void EDFThreadPoolExecutor::threadRun(ThreadPtr thread) {
     }
 
     stats.waitTime = startTime - stats.enqueueTime;
-    try {
-      task->run(iter);
-    } catch (const std::exception& e) {
-      LOG(ERROR) << "EDFThreadPoolExecutor: func threw unhandled "
-                 << typeid(e).name() << " exception: " << e.what();
-    } catch (...) {
-      LOG(ERROR)
-          << "EDFThreadPoolExecutor: func threw unhandled non-exception object";
-    }
+    invokeCatchingExns("EDFThreadPoolExecutor: func", [&] {
+      std::exchange(task, {})->run(iter);
+    });
     stats.runTime = std::chrono::steady_clock::now() - startTime;
     thread->idle.store(true, std::memory_order_relaxed);
     thread->lastActiveTime.store(
         std::chrono::steady_clock::now(), std::memory_order_relaxed);
+    auto& inCallback = *thread->taskStatsCallbacks->inCallback;
     thread->taskStatsCallbacks->callbackList.withRLock([&](auto& callbacks) {
-      *thread->taskStatsCallbacks->inCallback = true;
-      SCOPE_EXIT { *thread->taskStatsCallbacks->inCallback = false; };
-      try {
+      inCallback = true;
+      SCOPE_EXIT { inCallback = false; };
+      invokeCatchingExns("EDFThreadPoolExecutor: stats callback", [&] {
         for (auto& callback : callbacks) {
           callback(stats);
         }
-      } catch (const std::exception& e) {
-        LOG(ERROR) << "EDFThreadPoolExecutor: task stats callback threw "
-                      "unhandled "
-                   << typeid(e).name() << " exception: " << e.what();
-      } catch (...) {
-        LOG(ERROR) << "EDFThreadPoolExecutor: task stats callback threw "
-                      "unhandled non-exception object";
-      }
+      });
     });
   }
 }

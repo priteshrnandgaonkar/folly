@@ -30,8 +30,7 @@
 
 extern "C" FOLLY_ATTR_WEAK void eb_poll_loop_pre_hook(uint64_t* call_time);
 extern "C" FOLLY_ATTR_WEAK void eb_poll_loop_post_hook(
-    uint64_t call_time,
-    int ret);
+    uint64_t call_time, int ret);
 
 namespace {
 struct SignalRegistry {
@@ -146,7 +145,11 @@ class SQGroupInfoRegistry {
       }
     };
 
-    explicit SQGroupInfo(size_t num) : subGroups(num) {}
+    SQGroupInfo(size_t num, std::set<uint32_t> const& cpus) : subGroups(num) {
+      for (const uint32_t cpu : cpus) {
+        nextCpu.emplace_back(cpu);
+      }
+    }
 
     // returns the least loaded subgroup
     SQSubGroupInfo* getNextSubgroup() {
@@ -189,6 +192,9 @@ class SQGroupInfoRegistry {
     std::vector<SQSubGroupInfo> subGroups;
     // number of entries
     size_t count{0};
+    // Set of CPUs we will bind threads to.
+    std::vector<uint32_t> nextCpu;
+    int nextCpuIndex{0};
   };
 
   using SQGroupInfoMap = folly::F14FastMap<std::string, SQGroupInfo>;
@@ -206,13 +212,13 @@ class SQGroupInfoRegistry {
       const std::string& groupName,
       size_t groupNumThreads,
       FDCreateFunc& createFd,
-      struct io_uring_params& params) {
+      struct io_uring_params& params,
+      std::set<uint32_t> const& cpus) {
     if (groupName.empty()) {
       createFd(params);
       return 0;
     }
 
-    size_t ret = 0;
     std::lock_guard g(mutex_);
 
     SQGroupInfo::SQSubGroupInfo* sg = nullptr;
@@ -220,28 +226,34 @@ class SQGroupInfoRegistry {
     auto iter = map_.find(groupName);
     if (iter != map_.end()) {
       info = &iter->second;
-      sg = info->getNextSubgroup();
+    } else {
+      // First use of this group.
+      SQGroupInfo gr(groupNumThreads, cpus);
+      info =
+          &map_.insert(std::make_pair(groupName, std::move(gr))).first->second;
+    }
+    sg = info->getNextSubgroup();
+    if (sg->count) {
       // we're adding to a non empty subgroup
-      if (sg->count) {
-        params.wq_fd = *(sg->fds.begin());
-        params.flags |= IORING_SETUP_ATTACH_WQ;
+      params.wq_fd = *(sg->fds.begin());
+      params.flags |= IORING_SETUP_ATTACH_WQ;
+    } else {
+      // First use of this subgroup, pin thread to CPU if specified.
+      if (info->nextCpu.size()) {
+        uint32_t cpu = info->nextCpu[info->nextCpuIndex];
+        info->nextCpuIndex = (info->nextCpuIndex + 1) % info->nextCpu.size();
+
+        params.sq_thread_cpu = cpu;
+        params.flags |= IORING_SETUP_SQ_AFF;
       }
     }
 
     auto fd = createFd(params);
-
-    if (fd >= 0) {
-      if (!info) {
-        SQGroupInfo gr(groupNumThreads);
-        info = &map_.insert(std::make_pair(groupName, std::move(gr)))
-                    .first->second;
-        sg = info->getNextSubgroup();
-      }
-
-      ret = info->add(fd, sg);
+    if (fd < 0) {
+      return 0;
     }
 
-    return ret;
+    return info->add(fd, sg);
   }
 
   size_t removeFrom(const std::string& groupName, int fd, FDCloseFunc& func) {
@@ -273,8 +285,7 @@ static folly::Indestructible<SQGroupInfoRegistry> sSQGroupInfoRegistry;
 
 namespace folly {
 IoUringBackend::TimerEntry::TimerEntry(
-    Event* event,
-    const struct timeval& timeout)
+    Event* event, const struct timeval& timeout)
     : event_(event) {
   setExpireTime(timeout, std::chrono::steady_clock::now());
 }
@@ -404,25 +415,46 @@ IoUringBackend::IoUringBackend(Options options)
   if (options.flags & Options::Flags::POLL_SQ) {
     params_.flags |= IORING_SETUP_SQPOLL;
     params_.sq_thread_idle = options.sqIdle.count();
-    params_.sq_thread_cpu = options.sqCpu;
   }
 
   SQGroupInfoRegistry::FDCreateFunc func = [&](struct io_uring_params& params) {
-    // allocate entries both for poll add and cancel
-    if (::io_uring_queue_init_params(
-            2 * options_.maxSubmit, &ioRing_, &params)) {
-      LOG(ERROR) << "io_uring_queue_init_params(" << 2 * options_.maxSubmit
-                 << "," << params.cq_entries << ") "
-                 << "failed errno = " << errno << ":\""
-                 << folly::errnoStr(errno) << "\" " << this;
-      throw NotAvailable("io_uring_queue_init error");
+    while (true) {
+      // allocate entries both for poll add and cancel
+      if (::io_uring_queue_init_params(
+              2 * options_.maxSubmit, &ioRing_, &params)) {
+        options.capacity /= 2;
+        if (options.minCapacity && (options.capacity >= options.minCapacity)) {
+          LOG(INFO) << "io_uring_queue_init_params(" << 2 * options_.maxSubmit
+                    << "," << params.cq_entries << ") "
+                    << "failed errno = " << errno << ":\""
+                    << folly::errnoStr(errno) << "\" " << this
+                    << " retrying with capacity = " << options.capacity;
+
+          params_.cq_entries = options.capacity;
+          numEntries_ = options.capacity;
+        } else {
+          LOG(ERROR) << "io_uring_queue_init_params(" << 2 * options_.maxSubmit
+                     << "," << params.cq_entries << ") "
+                     << "failed errno = " << errno << ":\""
+                     << folly::errnoStr(errno) << "\" " << this;
+
+          throw NotAvailable("io_uring_queue_init error");
+        }
+      } else {
+        // success - break
+        break;
+      }
     }
 
     return ioRing_.ring_fd;
   };
 
   auto ret = sSQGroupInfoRegistry->addTo(
-      options_.sqGroupName, options_.sqGroupNumThreads, func, params_);
+      options_.sqGroupName,
+      options_.sqGroupNumThreads,
+      func,
+      params_,
+      options.sqCpus);
 
   if (!options_.sqGroupName.empty()) {
     LOG(INFO) << "Adding to SQ poll group \"" << options_.sqGroupName
@@ -448,11 +480,7 @@ IoUringBackend::IoUringBackend(Options options)
     fdRegistry_.init();
   }
 
-  // add the timer fd
-  if (!addTimerFd() || !addSignalFds()) {
-    cleanup();
-    throw NotAvailable("io_uring_submit error");
-  }
+  // delay adding the timer and signal fds until running the loop first time
 }
 
 IoUringBackend::~IoUringBackend() {
@@ -583,8 +611,7 @@ void IoUringBackend::scheduleTimeout(const std::chrono::microseconds& us) {
 }
 
 void IoUringBackend::addTimerEvent(
-    Event& event,
-    const struct timeval* timeout) {
+    Event& event, const struct timeval* timeout) {
   // first try to remove if already existing
   auto iter1 = eventToTimers_.find(&event);
   if (iter1 != eventToTimers_.end()) {
@@ -828,6 +855,14 @@ size_t IoUringBackend::processActiveEvents() {
 }
 
 int IoUringBackend::eb_event_base_loop(int flags) {
+  if (registerDefaultFds_) {
+    registerDefaultFds_ = false;
+    if (!addTimerFd() || !addSignalFds()) {
+      cleanup();
+      throw NotAvailable("io_uring_submit error");
+    }
+  }
+
   // schedule the timers
   bool done = false;
   auto waitForEvents = (flags & EVLOOP_NONBLOCK) ? WaitForEventsMode::DONT_WAIT
@@ -1129,8 +1164,7 @@ int IoUringBackend::submitBusyCheck(int num, WaitForEventsMode waitForEvents) {
 }
 
 size_t IoUringBackend::submitList(
-    IoSqeList& ioSqes,
-    WaitForEventsMode waitForEvents) {
+    IoSqeList& ioSqes, WaitForEventsMode waitForEvents) {
   int i = 0;
   size_t ret = 0;
 
@@ -1161,11 +1195,7 @@ size_t IoUringBackend::submitList(
 }
 
 void IoUringBackend::queueRead(
-    int fd,
-    void* buf,
-    unsigned int nbytes,
-    off_t offset,
-    FileOpCallback&& cb) {
+    int fd, void* buf, unsigned int nbytes, off_t offset, FileOpCallback&& cb) {
   struct iovec iov {
     buf, nbytes
   };
@@ -1226,6 +1256,41 @@ void IoUringBackend::queueFdatasync(int fd, FileOpCallback&& cb) {
 
 void IoUringBackend::queueFsync(int fd, FSyncFlags flags, FileOpCallback&& cb) {
   auto* ioSqe = new FSyncIoSqe(this, fd, flags, std::move(cb));
+  ioSqe->backendCb_ = processFileOpCB;
+  incNumIoSqeInUse();
+
+  submitImmediateIoSqe(*ioSqe);
+}
+
+void IoUringBackend::queueOpenat(
+    int dfd, const char* path, int flags, mode_t mode, FileOpCallback&& cb) {
+  auto* ioSqe = new FOpenAtIoSqe(this, dfd, path, flags, mode, std::move(cb));
+  ioSqe->backendCb_ = processFileOpCB;
+  incNumIoSqeInUse();
+
+  submitImmediateIoSqe(*ioSqe);
+}
+
+void IoUringBackend::queueOpenat2(
+    int dfd, const char* path, struct open_how* how, FileOpCallback&& cb) {
+  auto* ioSqe = new FOpenAt2IoSqe(this, dfd, path, how, std::move(cb));
+  ioSqe->backendCb_ = processFileOpCB;
+  incNumIoSqeInUse();
+
+  submitImmediateIoSqe(*ioSqe);
+}
+
+void IoUringBackend::queueClose(int fd, FileOpCallback&& cb) {
+  auto* ioSqe = new FCloseIoSqe(this, fd, std::move(cb));
+  ioSqe->backendCb_ = processFileOpCB;
+  incNumIoSqeInUse();
+
+  submitImmediateIoSqe(*ioSqe);
+}
+
+void IoUringBackend::queueFallocate(
+    int fd, int mode, off_t offset, off_t len, FileOpCallback&& cb) {
+  auto* ioSqe = new FAllocateIoSqe(this, fd, mode, offset, len, std::move(cb));
   ioSqe->backendCb_ = processFileOpCB;
   incNumIoSqeInUse();
 

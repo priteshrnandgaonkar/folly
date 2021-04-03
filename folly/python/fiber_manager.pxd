@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from libcpp.memory cimport unique_ptr
+from libcpp cimport bool
 from folly.executor cimport cAsyncioExecutor
 
 cdef extern from "folly/fibers/LoopController.h" namespace "folly::fibers":
@@ -25,6 +26,7 @@ cdef extern from "folly/fibers/FiberManagerInternal.h" namespace "folly::fibers"
     cdef cppclass cFiberManager "folly::fibers::FiberManager":
         cFiberManager(unique_ptr[cLoopController], const cFiberManagerOptions&)
         void loopUntilNoReady()
+        bool isRemoteScheduled() const
 
 cdef extern from "folly/fibers/ExecutorLoopController.h" namespace "folly::fibers":
     cdef cppclass cAsyncioLoopController "folly::fibers::ExecutorLoopController"(cLoopController):

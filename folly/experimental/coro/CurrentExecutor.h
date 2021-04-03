@@ -19,9 +19,12 @@
 #include <utility>
 
 #include <folly/Executor.h>
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/ViaIfAsync.h>
 #include <folly/experimental/coro/WithAsyncStack.h>
 #include <folly/io/async/Request.h>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -67,20 +70,19 @@ class co_reschedule_on_current_executor_ {
     folly::Executor::KeepAlive<> executor_;
   };
 
+ public:
   class StackAwareAwaiter : public AwaiterBase {
    public:
     using AwaiterBase::AwaiterBase;
 
     template <typename Promise>
-    void await_suspend(
-        std::experimental::coroutine_handle<Promise> coro) noexcept {
+    void await_suspend(coroutine_handle<Promise> coro) noexcept {
       await_suspend_impl(coro, coro.promise().getAsyncFrame());
     }
 
    private:
     FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES void await_suspend_impl(
-        std::experimental::coroutine_handle<> coro,
-        AsyncStackFrame& frame) {
+        coroutine_handle<> coro, AsyncStackFrame& frame) {
       auto& stackRoot = *frame.getStackRoot();
       folly::deactivateAsyncStackFrame(frame);
       try {
@@ -101,7 +103,7 @@ class co_reschedule_on_current_executor_ {
     using AwaiterBase::AwaiterBase;
 
     FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES void await_suspend(
-        std::experimental::coroutine_handle<> coro) {
+        coroutine_handle<> coro) {
       executor_->add([coro, ctx = RequestContext::saveContext()]() mutable {
         RequestContextScopeGuard contextScope{std::move(ctx)};
         coro.resume();
@@ -109,8 +111,7 @@ class co_reschedule_on_current_executor_ {
     }
 
     friend StackAwareAwaiter tag_invoke(
-        cpo_t<co_withAsyncStack>,
-        Awaiter awaiter) {
+        cpo_t<co_withAsyncStack>, Awaiter awaiter) {
       return StackAwareAwaiter{std::move(awaiter.executor_)};
     }
   };
@@ -159,5 +160,39 @@ using co_current_cancellation_token_t = detail::co_current_cancellation_token_;
 inline constexpr co_current_cancellation_token_t co_current_cancellation_token{
     co_current_cancellation_token_t::secret_::token_};
 
+//  co_safe_point_t
+//  co_safe_point
+//
+//  A semi-awaitable type and value which, when awaited in an async coroutine
+//  supporting safe-points, causes a safe-point to be reached.
+//
+//  Example:
+//
+//    co_await co_safe_point; // a safe-point is reached
+//
+//  At this safe-point:
+//  - If cancellation has been requested then the coroutine is terminated with
+//    cancellation.
+//  - To aid overall system concurrency, the coroutine may be rescheduled onto
+//    the current executor.
+//  - Otherwise, the coroutine is resumed.
+//
+//  Recommended for use wherever cancellation is checked and handled via early
+//  termination.
+//
+//  Technical note: behavior is typically implemented in some overload
+//  of await_transform in the coroutine's promise type, or in the awaitable
+//  or awaiter it returns. Example:
+//
+//      struct /* some coroutine type */ {
+//        struct promise_type {
+//          /* some awaiter */ await_transform(co_safe_point_t) noexcept;
+//        };
+//      };
+class co_safe_point_t final {};
+FOLLY_INLINE_VARIABLE constexpr co_safe_point_t co_safe_point{};
+
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

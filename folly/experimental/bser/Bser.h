@@ -15,12 +15,14 @@
  */
 
 #pragma once
+
+#include <unordered_map>
+
 #include <folly/CPortability.h>
 #include <folly/Optional.h>
 #include <folly/dynamic.h>
 #include <folly/io/IOBuf.h>
 #include <folly/io/IOBufQueue.h>
-#include <unordered_map>
 
 /* This is an implementation of the BSER binary serialization scheme.
  * BSER was created as a binary, local-system-only representation of
@@ -97,8 +99,7 @@ size_t decodePduLength(const folly::IOBuf*);
 
 folly::fbstring toBser(folly::dynamic const&, const serialization_opts&);
 std::unique_ptr<folly::IOBuf> toBserIOBuf(
-    folly::dynamic const&,
-    const serialization_opts&);
+    folly::dynamic const&, const serialization_opts&);
 } // namespace bser
 } // namespace folly
 

@@ -16,12 +16,13 @@
 
 #include <folly/Portability.h>
 
-#if FOLLY_HAS_COROUTINES
+#include <algorithm>
 
 #include <folly/ScopeGuard.h>
 #include <folly/experimental/coro/Generator.h>
 #include <folly/portability/GTest.h>
-#include <algorithm>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {

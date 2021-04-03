@@ -18,11 +18,13 @@
 #include <folly/experimental/coro/Baton.h>
 #include <folly/experimental/coro/WithCancellation.h>
 
+#if FOLLY_HAS_COROUTINES
+
 namespace folly::coro {
 
 template <typename SemiAwaitable, typename Duration>
-Task<semi_await_result_t<SemiAwaitable>>
-timeout(SemiAwaitable semiAwaitable, Duration timeoutDuration, Timekeeper* tk) {
+Task<semi_await_result_t<SemiAwaitable>> timeout(
+    SemiAwaitable semiAwaitable, Duration timeoutDuration, Timekeeper* tk) {
   CancellationSource cancelSource;
   folly::coro::Baton baton;
   exception_wrapper timeoutResult;
@@ -102,3 +104,5 @@ timeout(SemiAwaitable semiAwaitable, Duration timeoutDuration, Timekeeper* tk) {
 }
 
 } // namespace folly::coro
+
+#endif // FOLLY_HAS_COROUTINES

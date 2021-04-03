@@ -123,19 +123,18 @@ void EventBaseAtomicNotificationQueue<Task, Consumer>::drain() {
 }
 
 template <typename Task, typename Consumer>
-template <typename T>
-void EventBaseAtomicNotificationQueue<Task, Consumer>::putMessage(T&& task) {
-  if (notificationQueue_.push(std::forward<T>(task))) {
+template <typename... Args>
+void EventBaseAtomicNotificationQueue<Task, Consumer>::putMessage(
+    Args&&... args) {
+  if (notificationQueue_.push(std::forward<Args>(args)...)) {
     notifyFd();
   }
 }
 
 template <typename Task, typename Consumer>
-template <typename T>
 bool EventBaseAtomicNotificationQueue<Task, Consumer>::tryPutMessage(
-    T&& task,
-    uint32_t maxSize) {
-  auto result = notificationQueue_.tryPush(std::forward<T>(task), maxSize);
+    Task&& task, uint32_t maxSize) {
+  auto result = notificationQueue_.tryPush(std::forward<Task>(task), maxSize);
   if (result ==
       AtomicNotificationQueue<Task>::TryPushResult::SUCCESS_AND_ARMED) {
     notifyFd();
@@ -166,8 +165,7 @@ void EventBaseAtomicNotificationQueue<Task, Consumer>::startConsumingInternal(
 
 template <typename Task, typename Consumer>
 void EventBaseAtomicNotificationQueue<Task, Consumer>::startConsumingImpl(
-    EventBase* evb,
-    bool internal) {
+    EventBase* evb, bool internal) {
   evb_ = evb;
   initHandler(
       evb_,

@@ -62,6 +62,12 @@ class IoUringBackend : public EventBaseBackendBase {
       return *this;
     }
 
+    Options& setMinCapacity(size_t v) {
+      minCapacity = v;
+
+      return *this;
+    }
+
     Options& setMaxSubmit(size_t v) {
       maxSubmit = v;
 
@@ -98,8 +104,22 @@ class IoUringBackend : public EventBaseBackendBase {
       return *this;
     }
 
+    // Set the CPU as preferred for submission queue poll thread.
+    //
+    // This only has effect if POLL_SQ flag is specified.
+    //
+    // Can call multiple times to specify multiple CPUs.
     Options& setSQCpu(uint32_t v) {
-      sqCpu = v;
+      sqCpus.insert(v);
+
+      return *this;
+    }
+
+    // Set the preferred CPUs for submission queue poll thread(s).
+    //
+    // This only has effect if POLL_SQ flag is specified.
+    Options& setSQCpus(std::set<uint32_t> const& cpus) {
+      sqCpus.insert(cpus.begin(), cpus.end());
 
       return *this;
     }
@@ -117,6 +137,7 @@ class IoUringBackend : public EventBaseBackendBase {
     }
 
     size_t capacity{0};
+    size_t minCapacity{0};
     size_t maxSubmit{128};
     size_t maxGet{std::numeric_limits<size_t>::max()};
     bool useRegisteredFds{false};
@@ -124,7 +145,7 @@ class IoUringBackend : public EventBaseBackendBase {
 
     std::chrono::milliseconds sqIdle{0};
     std::chrono::milliseconds cqIdle{0};
-    uint32_t sqCpu{0};
+    std::set<uint32_t> sqCpus;
     std::string sqGroupName;
     size_t sqGroupNumThreads{1};
   };
@@ -203,6 +224,17 @@ class IoUringBackend : public EventBaseBackendBase {
   // we have to wait for are done
   void queueFsync(int fd, FileOpCallback&& cb);
   void queueFdatasync(int fd, FileOpCallback&& cb);
+
+  void queueOpenat(
+      int dfd, const char* path, int flags, mode_t mode, FileOpCallback&& cb);
+
+  void queueOpenat2(
+      int dfd, const char* path, struct open_how* how, FileOpCallback&& cb);
+
+  void queueClose(int fd, FileOpCallback&& cb);
+
+  void queueFallocate(
+      int fd, int mode, off_t offset, off_t len, FileOpCallback&& cb);
 
  protected:
   enum class WaitForEventsMode { WAIT, DONT_WAIT };
@@ -304,13 +336,13 @@ class IoUringBackend : public EventBaseBackendBase {
 
   struct IoSqe;
 
-  static void
-  processPollIoSqe(IoUringBackend* backend, IoSqe* ioSqe, int64_t res) {
+  static void processPollIoSqe(
+      IoUringBackend* backend, IoSqe* ioSqe, int64_t res) {
     backend->processPollIo(ioSqe, res);
   }
 
-  static void
-  processTimerIoSqe(IoUringBackend* backend, IoSqe* /*sqe*/, int64_t /*res*/) {
+  static void processTimerIoSqe(
+      IoUringBackend* backend, IoSqe* /*sqe*/, int64_t /*res*/) {
     backend->setProcessTimers();
   }
 
@@ -322,9 +354,7 @@ class IoUringBackend : public EventBaseBackendBase {
   FOLLY_ALWAYS_INLINE void setProcessSignals() { processSignals_ = true; }
 
   static void processSignalReadIoSqe(
-      IoUringBackend* backend,
-      IoSqe* /*sqe*/,
-      int64_t /*res*/) {
+      IoUringBackend* backend, IoSqe* /*sqe*/, int64_t /*res*/) {
     backend->setProcessSignals();
   }
 
@@ -510,10 +540,7 @@ class IoUringBackend : public EventBaseBackendBase {
     EventCallbackData cbData_;
 
     void prepPollAdd(
-        struct io_uring_sqe* sqe,
-        int fd,
-        uint32_t events,
-        bool registerFd) {
+        struct io_uring_sqe* sqe, int fd, uint32_t events, bool registerFd) {
       CHECK(sqe);
       if (registerFd && !fdRecord_) {
         fdRecord_ = backend_->registerFd(fd);
@@ -571,10 +598,7 @@ class IoUringBackend : public EventBaseBackendBase {
     }
 
     void prepRecvmsg(
-        struct io_uring_sqe* sqe,
-        int fd,
-        struct msghdr* msg,
-        bool registerFd) {
+        struct io_uring_sqe* sqe, int fd, struct msghdr* msg, bool registerFd) {
       CHECK(sqe);
       if (registerFd && !fdRecord_) {
         fdRecord_ = backend_->registerFd(fd);
@@ -590,8 +614,7 @@ class IoUringBackend : public EventBaseBackendBase {
     }
 
     FOLLY_ALWAYS_INLINE void prepCancel(
-        struct io_uring_sqe* sqe,
-        void* user_data) {
+        struct io_uring_sqe* sqe, void* user_data) {
       CHECK(sqe);
       ::io_uring_prep_cancel(sqe, user_data, 0);
       ::io_uring_sqe_set_data(sqe, this);
@@ -690,10 +713,7 @@ class IoUringBackend : public EventBaseBackendBase {
 
   struct FSyncIoSqe : public FileOpIoSqe {
     FSyncIoSqe(
-        IoUringBackend* backend,
-        int fd,
-        FSyncFlags flags,
-        FileOpCallback&& cb)
+        IoUringBackend* backend, int fd, FSyncFlags flags, FileOpCallback&& cb)
         : FileOpIoSqe(backend, fd, std::move(cb)), flags_(flags) {}
 
     ~FSyncIoSqe() override = default;
@@ -716,6 +736,87 @@ class IoUringBackend : public EventBaseBackendBase {
     FSyncFlags flags_;
   };
 
+  struct FOpenAtIoSqe : public FileOpIoSqe {
+    FOpenAtIoSqe(
+        IoUringBackend* backend,
+        int dfd,
+        const char* path,
+        int flags,
+        mode_t mode,
+        FileOpCallback&& cb)
+        : FileOpIoSqe(backend, dfd, std::move(cb)),
+          path_(path),
+          flags_(flags),
+          mode_(mode) {}
+
+    ~FOpenAtIoSqe() override = default;
+
+    void processSubmit(struct io_uring_sqe* sqe) override {
+      ::io_uring_prep_openat(sqe, fd_, path_.c_str(), flags_, mode_);
+      ::io_uring_sqe_set_data(sqe, this);
+    }
+
+    std::string path_;
+    int flags_;
+    mode_t mode_;
+  };
+
+  struct FOpenAt2IoSqe : public FileOpIoSqe {
+    FOpenAt2IoSqe(
+        IoUringBackend* backend,
+        int dfd,
+        const char* path,
+        struct open_how* how,
+        FileOpCallback&& cb)
+        : FileOpIoSqe(backend, dfd, std::move(cb)), path_(path), how_(*how) {}
+
+    ~FOpenAt2IoSqe() override = default;
+
+    void processSubmit(struct io_uring_sqe* sqe) override {
+      ::io_uring_prep_openat2(sqe, fd_, path_.c_str(), &how_);
+      ::io_uring_sqe_set_data(sqe, this);
+    }
+
+    std::string path_;
+    struct open_how how_;
+  };
+
+  struct FCloseIoSqe : public FileOpIoSqe {
+    using FileOpIoSqe::FileOpIoSqe;
+
+    ~FCloseIoSqe() override = default;
+
+    void processSubmit(struct io_uring_sqe* sqe) override {
+      ::io_uring_prep_close(sqe, fd_);
+      ::io_uring_sqe_set_data(sqe, this);
+    }
+  };
+
+  struct FAllocateIoSqe : public FileOpIoSqe {
+    FAllocateIoSqe(
+        IoUringBackend* backend,
+        int fd,
+        int mode,
+        off_t offset,
+        off_t len,
+        FileOpCallback&& cb)
+        : FileOpIoSqe(backend, fd, std::move(cb)),
+          mode_(mode),
+          offset_(offset),
+          len_(len) {}
+
+    ~FAllocateIoSqe() override = default;
+
+    void processSubmit(struct io_uring_sqe* sqe) override {
+      ::io_uring_prep_fallocate(sqe, fd_, mode_, offset_, len_);
+      ::io_uring_sqe_set_data(sqe, this);
+    }
+
+    int mode_;
+    off_t offset_;
+    off_t len_;
+  };
+
   int getActiveEvents(WaitForEventsMode waitForEvents);
   size_t submitList(IoSqeList& ioSqes, WaitForEventsMode waitForEvents);
   int submitOne();
@@ -727,8 +828,8 @@ class IoUringBackend : public EventBaseBackendBase {
 
   void processFileOp(IoSqe* ioSqe, int64_t res) noexcept;
 
-  static void
-  processFileOpCB(IoUringBackend* backend, IoSqe* ioSqe, int64_t res) {
+  static void processFileOpCB(
+      IoUringBackend* backend, IoSqe* ioSqe, int64_t res) {
     static_cast<IoUringBackend*>(backend)->processFileOp(ioSqe, res);
   }
 
@@ -796,6 +897,8 @@ class IoUringBackend : public EventBaseBackendBase {
   // poll callback to be invoked if POLL_CQ flag is set
   // every time we poll for a CQE
   CQPollLoopCallback cqPollLoopCallback_;
+
+  bool registerDefaultFds_{true};
 };
 
 using PollIoBackend = IoUringBackend;

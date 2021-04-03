@@ -72,7 +72,7 @@ struct Obj {
 void swap(Obj&, Obj&) noexcept {} // no-op
 } // namespace swappable
 
-struct AltSwappable;
+struct AltSwappable {};
 struct AltSwappableRet {};
 namespace unswappable {
 FOLLY_MAYBE_UNUSED AltSwappableRet swap(AltSwappable&, AltSwappable&);
@@ -330,14 +330,12 @@ struct TestCustomisationPointFn {
 FOLLY_DEFINE_CPO(TestCustomisationPointFn, testCustomisationPoint)
 
 struct TypeA {
-  constexpr friend int
-  tag_invoke(folly::cpo_t<testCustomisationPoint>, const TypeA&, int value) {
+  constexpr friend int tag_invoke(
+      folly::cpo_t<testCustomisationPoint>, const TypeA&, int value) {
     return value * 2;
   }
   constexpr friend bool tag_invoke(
-      folly::cpo_t<testCustomisationPoint>,
-      const TypeA&,
-      bool value) noexcept {
+      folly::cpo_t<testCustomisationPoint>, const TypeA&, bool value) noexcept {
     return !value;
   }
 };

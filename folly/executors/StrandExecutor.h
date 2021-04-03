@@ -90,8 +90,8 @@ class StrandContext : public std::enable_shared_from_this<StrandContext> {
   //
   // Note, that the priority will only affect the priority of the scheduling
   // of this particular function once all prior tasks have finished executing.
-  void
-  addWithPriority(Func func, Executor::KeepAlive<> executor, int8_t priority);
+  void addWithPriority(
+      Func func, Executor::KeepAlive<> executor, int8_t priority);
 
  private:
   struct PrivateTag {};
@@ -116,7 +116,7 @@ class StrandContext : public std::enable_shared_from_this<StrandContext> {
       std::shared_ptr<StrandContext> thisPtr) noexcept;
 
   std::atomic<std::size_t> scheduled_{0};
-  UMPSCQueue<QueueItem, /*MayBlock=*/false> queue_;
+  UMPSCQueue<QueueItem, /*MayBlock=*/false, /*LgSegmentSize=*/6> queue_;
 };
 
 class StrandExecutor final : public SequencedExecutor {

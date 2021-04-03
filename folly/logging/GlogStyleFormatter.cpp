@@ -44,8 +44,7 @@ StringPiece getGlogLevelName(LogLevel level) {
 namespace folly {
 
 std::string GlogStyleFormatter::formatMessage(
-    const LogMessage& message,
-    const LogCategory* /* handlerCategory */) {
+    const LogMessage& message, const LogCategory* /* handlerCategory */) {
   // Get the local time info
   struct tm ltime;
   auto timeSinceEpoch = message.getTimestamp().time_since_epoch();
@@ -60,7 +59,7 @@ std::string GlogStyleFormatter::formatMessage(
   }
 
   auto basename = message.getFileBaseName();
-  auto headerFormatter = folly::format(
+  auto header = folly::sformat(
       "{}{:02d}{:02d} {:02d}:{:02d}:{:02d}.{:06d} {:5d} {}:{}{}] ",
       getGlogLevelName(message.getLevel())[0],
       ltime.tm_mon + 1,
@@ -93,9 +92,6 @@ std::string GlogStyleFormatter::formatMessage(
   if (message.containsNewlines()) {
     // If there are multiple lines in the log message, add a header
     // before each one.
-    std::string header;
-    header.reserve(headerLengthGuess);
-    headerFormatter.appendTo(header);
 
     buffer.reserve(
         ((header.size() + 1) * message.getNumNewlines()) + msgData.size());
@@ -119,7 +115,7 @@ std::string GlogStyleFormatter::formatMessage(
     }
   } else {
     buffer.reserve(headerLengthGuess + msgData.size());
-    headerFormatter.appendTo(buffer);
+    buffer.append(header);
     buffer.append(msgData.data(), msgData.size());
     buffer.push_back('\n');
   }

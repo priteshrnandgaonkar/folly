@@ -21,7 +21,7 @@
 #include <thread>
 #include <vector>
 
-#include <folly/Format.h>
+#include <fmt/ostream.h>
 #include <folly/portability/GTest.h>
 #include <folly/synchronization/test/Barrier.h>
 
@@ -67,8 +67,9 @@ bool operator==(const CtorCounts& lhs, const CtorCounts& rhs) {
 }
 
 std::ostream& operator<<(std::ostream& out, const CtorCounts& counts) {
-  return out << folly::format(
-             "CtorCounts({}, {}, {})", counts.ctor, counts.copy, counts.move);
+  fmt::print(
+      out, "CtorCounts({}, {}, {})", counts.ctor, counts.copy, counts.move);
+  return out;
 }
 } // namespace
 
@@ -230,6 +231,26 @@ TEST(DelayedInit, ConstType) {
   EXPECT_TRUE(
       (std::is_same<decltype(*lazy), const CtorCounts::Tracker&>::value));
   EXPECT_EQ(lazy->value, 12);
+}
+
+namespace {
+template <typename T>
+class DelayedInitSizeTest : public testing::Test {};
+
+template <typename T>
+struct WithOneByte {
+  T t;
+  char c;
+};
+} // namespace
+
+using DelayedInitSizeTestTypes =
+    testing::Types<char, short, int, long, long long, char[3], short[2]>;
+TYPED_TEST_CASE(DelayedInitSizeTest, DelayedInitSizeTestTypes);
+
+TYPED_TEST(DelayedInitSizeTest, Size) {
+  // DelayedInit should not add more than 1-byte size overhead (modulo padding)
+  EXPECT_EQ(sizeof(DelayedInit<TypeParam>), sizeof(WithOneByte<TypeParam>));
 }
 
 TEST(DelayedInit, Concurrent) {

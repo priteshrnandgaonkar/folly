@@ -20,6 +20,7 @@
 #include <folly/Subprocess.h>
 #include <folly/experimental/io/FsUtil.h>
 #include <folly/portability/GTest.h>
+
 #include <glog/logging.h>
 
 namespace folly {
@@ -38,8 +39,7 @@ std::string getHelperPath() {
 }
 
 std::string callHelper(
-    ProgramOptionsStyle style,
-    std::initializer_list<std::string> args) {
+    ProgramOptionsStyle style, std::initializer_list<std::string> args) {
   static std::string helperPath = getHelperPath();
 
   std::vector<std::string> allArgs;

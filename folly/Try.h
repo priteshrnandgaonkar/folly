@@ -16,6 +16,11 @@
 
 #pragma once
 
+#include <exception>
+#include <stdexcept>
+#include <type_traits>
+#include <utility>
+
 #include <folly/ExceptionWrapper.h>
 #include <folly/Likely.h>
 #include <folly/Memory.h>
@@ -24,10 +29,6 @@
 #include <folly/Utility.h>
 #include <folly/functional/Invoke.h>
 #include <folly/lang/Exception.h>
-#include <exception>
-#include <stdexcept>
-#include <type_traits>
-#include <utility>
 
 namespace folly {
 
@@ -51,8 +52,7 @@ class FOLLY_EXPORT UsingUninitializedTry : public TryException {
 template <class T>
 class Try {
   static_assert(
-      !std::is_reference<T>::value,
-      "Try may not be used with reference types");
+      !std::is_reference<T>::value, "Try may not be used with reference types");
 
   enum class Contains {
     VALUE,
@@ -177,6 +177,17 @@ class Try {
    * @returns const rvalue reference to the contained value
    */
   const T&& value() const&&;
+
+  /*
+   * Returns a copy of the contained value if *this has a value,
+   * otherwise returns a value constructed from defaultValue.
+   *
+   * The selected constructor of the return value may throw exceptions.
+   */
+  template <class U>
+  T value_or(U&& defaultValue) const&;
+  template <class U>
+  T value_or(U&& defaultValue) &&;
 
   /*
    * [Re]throw if the Try contains an exception or is empty. Otherwise do

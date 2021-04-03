@@ -61,7 +61,8 @@ NestedCommandLineApp::NestedCommandLineApp(
       programHelpFooter_(std::move(programHelpFooter)),
       version_(std::move(version)),
       initFunction_(std::move(initFunction)),
-      globalOptions_("Global options") {
+      globalOptions_("Global options"),
+      optionStyle_(po::command_line_style::default_style) {
   addCommand(
       kHelpCommand.str(),
       "[command]",
@@ -72,6 +73,7 @@ NestedCommandLineApp::NestedCommandLineApp(
         displayHelp(vm, args);
       });
   builtinCommands_.insert(kHelpCommand);
+  addAlias(kShortHelpCommand.str(), kHelpCommand.str());
 
   addCommand(
       kVersionCommand.str(),
@@ -84,7 +86,7 @@ NestedCommandLineApp::NestedCommandLineApp(
   builtinCommands_.insert(kVersionCommand);
 
   globalOptions_.add_options()(
-      kHelpCommand.str().c_str(),
+      (kHelpCommand.str() + "," + kShortHelpCommand.str()).c_str(),
       "Display help (globally or for a given command)")(
       kVersionCommand.str().c_str(), "Display version information");
 }
@@ -114,6 +116,11 @@ void NestedCommandLineApp::addAlias(std::string newName, std::string oldName) {
   CHECK(!aliases_.count(newName) && !commands_.count(newName))
       << "Alias new name already exists";
   aliases_.emplace(std::move(newName), std::move(oldName));
+}
+
+void NestedCommandLineApp::setOptionStyle(
+    boost::program_options::command_line_style::style_t style) {
+  optionStyle_ = style;
 }
 
 void NestedCommandLineApp::displayHelp(
@@ -284,7 +291,7 @@ void NestedCommandLineApp::doRun(const std::vector<std::string>& args) {
     }
   }
 
-  auto parsed = parseNestedCommandLine(cleanArgs, globalOptions_);
+  auto parsed = parseNestedCommandLine(cleanArgs, globalOptions_, optionStyle_);
   po::variables_map vm;
   po::store(parsed.options, vm);
   if (vm.count(kHelpCommand.str())) {
@@ -314,8 +321,10 @@ void NestedCommandLineApp::doRun(const std::vector<std::string>& args) {
   auto& cmd = p.first;
   auto& info = p.second;
 
-  auto cmdOptions =
-      po::command_line_parser(parsed.rest).options(info.options).run();
+  auto cmdOptions = po::command_line_parser(parsed.rest)
+                        .options(info.options)
+                        .style(optionStyle_)
+                        .run();
 
   po::store(cmdOptions, vm);
   po::notify(vm);

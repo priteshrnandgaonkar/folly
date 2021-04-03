@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/Traits.h>
 #include <folly/functional/Invoke.h>
 #include <folly/lang/Assume.h>
@@ -25,6 +26,8 @@
 #include <cassert>
 #include <type_traits>
 #include <utility>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly::coro {
 
@@ -36,16 +39,14 @@ class WithAsyncStackCoroutine {
    public:
     WithAsyncStackCoroutine get_return_object() noexcept {
       return WithAsyncStackCoroutine{
-          std::experimental::coroutine_handle<promise_type>::from_promise(
-              *this)};
+          coroutine_handle<promise_type>::from_promise(*this)};
     }
 
-    std::experimental::suspend_always initial_suspend() noexcept { return {}; }
+    suspend_always initial_suspend() noexcept { return {}; }
 
     struct FinalAwaiter {
       bool await_ready() noexcept { return false; }
-      void await_suspend(
-          std::experimental::coroutine_handle<promise_type> h) noexcept {
+      void await_suspend(coroutine_handle<promise_type> h) noexcept {
         auto& promise = h.promise();
         folly::resumeCoroutineWithNewAsyncStackRoot(
             promise.continuation_, *promise.parentFrame_);
@@ -65,7 +66,7 @@ class WithAsyncStackCoroutine {
    private:
     friend WithAsyncStackCoroutine;
 
-    std::experimental::coroutine_handle<> continuation_;
+    coroutine_handle<> continuation_;
     folly::AsyncStackFrame* parentFrame_ = nullptr;
   };
 
@@ -88,8 +89,8 @@ class WithAsyncStackCoroutine {
   static WithAsyncStackCoroutine create() { co_return; }
 
   template <typename Promise>
-  std::experimental::coroutine_handle<promise_type> getWrapperHandleFor(
-      std::experimental::coroutine_handle<Promise> h) noexcept {
+  coroutine_handle<promise_type> getWrapperHandleFor(
+      coroutine_handle<Promise> h) noexcept {
     auto& promise = coro_.promise();
     promise.continuation_ = h;
     promise.parentFrame_ = std::addressof(h.promise().getAsyncFrame());
@@ -97,11 +98,10 @@ class WithAsyncStackCoroutine {
   }
 
  private:
-  explicit WithAsyncStackCoroutine(
-      std::experimental::coroutine_handle<promise_type> h) noexcept
+  explicit WithAsyncStackCoroutine(coroutine_handle<promise_type> h) noexcept
       : coro_(h) {}
 
-  std::experimental::coroutine_handle<promise_type> coro_;
+  coroutine_handle<promise_type> coro_;
 };
 
 template <typename Awaitable>
@@ -120,7 +120,7 @@ class WithAsyncStackAwaiter {
 
   template <typename Promise>
   FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES auto await_suspend(
-      std::experimental::coroutine_handle<Promise> h) {
+      coroutine_handle<Promise> h) {
     AsyncStackFrame& callerFrame = h.promise().getAsyncFrame();
     AsyncStackRoot* stackRoot = callerFrame.getStackRoot();
     assert(stackRoot != nullptr);
@@ -258,3 +258,5 @@ inline constexpr bool is_awaitable_async_stack_aware_v =
 FOLLY_DEFINE_CPO(detail::WithAsyncStackFunction, co_withAsyncStack)
 
 } // namespace folly::coro
+
+#endif // FOLLY_HAS_COROUTINES

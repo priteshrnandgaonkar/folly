@@ -64,9 +64,7 @@ void StrandContext::add(Func func, Executor::KeepAlive<> executor) {
 }
 
 void StrandContext::addWithPriority(
-    Func func,
-    Executor::KeepAlive<> executor,
-    int8_t priority) {
+    Func func, Executor::KeepAlive<> executor, int8_t priority) {
   addImpl(QueueItem{std::move(func), std::move(executor), priority});
 }
 
@@ -100,15 +98,8 @@ void StrandContext::executeNext(
   std::size_t pendingCount = 0;
   for (std::size_t i = 0; i < maxItemsToProcessSynchronously; ++i) {
     QueueItem item = thisPtr->queue_.dequeue();
-    try {
-      std::exchange(item.func, {})();
-    } catch (const std::exception& ex) {
-      LOG(DFATAL) << "StrandExecutor: func threw unhandled exception "
-                  << folly::exceptionStr(ex);
-    } catch (...) {
-      LOG(DFATAL) << "StrandExecutor: func threw unhandled non-exception "
-                     "object";
-    }
+    Executor::invokeCatchingExns(
+        "StrandExecutor: func", std::exchange(item.func, {}));
 
     ++pendingCount;
 

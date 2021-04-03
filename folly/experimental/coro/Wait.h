@@ -16,8 +16,11 @@
 
 #pragma once
 
-#include <experimental/coroutine>
 #include <future>
+
+#include <folly/experimental/coro/Coroutine.h>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -36,9 +39,9 @@ class Wait {
 
     Wait get_return_object() { return Wait(promise_.get_future()); }
 
-    std::experimental::suspend_never initial_suspend() noexcept { return {}; }
+    suspend_never initial_suspend() noexcept { return {}; }
 
-    std::experimental::suspend_never final_suspend() noexcept { return {}; }
+    suspend_never final_suspend() noexcept { return {}; }
 
     void return_void() { promise_.set_value(); }
 
@@ -67,3 +70,5 @@ class Wait {
 };
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

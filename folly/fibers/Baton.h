@@ -20,11 +20,8 @@
 
 #include <folly/Portability.h>
 #include <folly/detail/Futex.h>
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/io/async/HHWheelTimer.h>
-
-#if FOLLY_HAS_COROUTINES
-#include <experimental/coroutine>
-#endif
 
 namespace folly {
 namespace fibers {
@@ -119,8 +116,7 @@ class Baton {
    */
   template <typename Rep, typename Period, typename F>
   bool try_wait_for(
-      const std::chrono::duration<Rep, Period>& timeout,
-      F&& mainContextFunc);
+      const std::chrono::duration<Rep, Period>& timeout, F&& mainContextFunc);
 
   /**
    * Puts active fiber to sleep. Returns when post is called or the deadline
@@ -175,8 +171,7 @@ class Baton {
   /// Alias to try_wait_for. Deprecated.
   template <typename Rep, typename Period, typename F>
   bool timed_wait(
-      const std::chrono::duration<Rep, Period>& timeout,
-      F&& mainContextFunc) {
+      const std::chrono::duration<Rep, Period>& timeout, F&& mainContextFunc) {
     return try_wait_for(timeout, static_cast<F&&>(mainContextFunc));
   }
 
@@ -279,14 +274,14 @@ class BatonAwaitableWaiter : public Baton::Waiter {
 
   void await_resume() {}
 
-  void await_suspend(std::experimental::coroutine_handle<> h) {
+  void await_suspend(coro::coroutine_handle<> h) {
     assert(!h_);
     h_ = std::move(h);
     baton_.setWaiter(*this);
   }
 
  private:
-  std::experimental::coroutine_handle<> h_;
+  coro::coroutine_handle<> h_;
   Baton& baton_;
 };
 } // namespace detail

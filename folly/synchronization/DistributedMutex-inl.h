@@ -516,8 +516,7 @@ class TaskWithBigReturnValue {
   // waits
   using ReturnType = folly::invoke_result_t<const Func&>;
   static const auto kReturnValueAlignment = folly::constexpr_max(
-      alignof(ReturnType),
-      folly::hardware_destructive_interference_size);
+      alignof(ReturnType), folly::hardware_destructive_interference_size);
   using StorageType = std::aligned_storage_t<
       sizeof(std::aligned_storage_t<sizeof(ReturnType), kReturnValueAlignment>),
       kReturnValueAlignment>;
@@ -1024,8 +1023,7 @@ bool wait(Waiter* waiter, std::uint32_t mode, Waiter*& next, uint32_t& signal) {
 }
 
 inline void recordTimedWaiterAndClearTimedBit(
-    bool& timedWaiter,
-    std::uintptr_t& previous) {
+    bool& timedWaiter, std::uintptr_t& previous) {
   // the previous value in the mutex can never be kTimedWaiter, timed waiters
   // always set (kTimedWaiter | kLocked) in the mutex word when they try and
   // acquire the mutex
@@ -1042,7 +1040,7 @@ inline void recordTimedWaiterAndClearTimedBit(
 template <typename Atomic>
 void wakeTimedWaiters(Atomic* state, bool timedWaiters) {
   if (UNLIKELY(timedWaiters)) {
-    atomic_notify_one(state);
+    folly::atomic_notify_one(state); // evade ADL
   }
 }
 
@@ -1093,8 +1091,7 @@ template <template <typename> class Atomic, bool TimePublishing>
 template <typename Rep, typename Period, typename Func>
 folly::Optional<invoke_result_t<Func&>>
 DistributedMutex<Atomic, TimePublishing>::try_lock_combine_for(
-    const std::chrono::duration<Rep, Period>& duration,
-    Func func) {
+    const std::chrono::duration<Rep, Period>& duration, Func func) {
   auto state = try_lock_for(duration);
   if (state) {
     SCOPE_EXIT { unlock(std::move(state)); };
@@ -1108,8 +1105,7 @@ template <template <typename> class Atomic, bool TimePublishing>
 template <typename Clock, typename Duration, typename Func>
 folly::Optional<invoke_result_t<Func&>>
 DistributedMutex<Atomic, TimePublishing>::try_lock_combine_until(
-    const std::chrono::time_point<Clock, Duration>& deadline,
-    Func func) {
+    const std::chrono::time_point<Clock, Duration>& deadline, Func func) {
   auto state = try_lock_until(deadline);
   if (state) {
     SCOPE_EXIT { unlock(std::move(state)); };
@@ -1669,7 +1665,10 @@ auto timedLock(Atomic& state, Deadline deadline, MakeProxy proxy) {
 
     // wait on the futex until signalled, if we get a timeout, the try_lock
     // fails
-    auto result = atomic_wait_until(&state, previous | data, deadline);
+    auto result = folly::atomic_wait_until( // evade ADL
+        &state,
+        previous | data,
+        deadline);
     if (result == std::cv_status::timeout) {
       return proxy(nullptr, std::uintptr_t{0}, false);
     }

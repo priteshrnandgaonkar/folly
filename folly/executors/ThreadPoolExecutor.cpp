@@ -65,9 +65,7 @@ ThreadPoolExecutor::~ThreadPoolExecutor() {
 }
 
 ThreadPoolExecutor::Task::Task(
-    Func&& func,
-    std::chrono::milliseconds expiration,
-    Func&& expireCallback)
+    Func&& func, std::chrono::milliseconds expiration, Func&& expireCallback)
     : func_(std::move(func)),
       expiration_(expiration),
       expireCallback_(std::move(expireCallback)),
@@ -75,6 +73,23 @@ ThreadPoolExecutor::Task::Task(
   // Assume that the task in enqueued on creation
   enqueueTime_ = std::chrono::steady_clock::now();
 }
+
+namespace {
+
+template <class F>
+void nothrow(const char* name, F&& f) {
+  try {
+    f();
+  } catch (const std::exception& e) {
+    LOG(ERROR) << "ThreadPoolExecutor: " << name << " threw unhandled "
+               << typeid(e).name() << " exception: " << e.what();
+  } catch (...) {
+    LOG(ERROR) << "ThreadPoolExecutor: " << name
+               << " threw unhandled non-exception object";
+  }
+}
+
+} // namespace
 
 void ThreadPoolExecutor::runTask(const ThreadPtr& thread, Task&& task) {
   thread->idle.store(false, std::memory_order_relaxed);
@@ -86,30 +101,31 @@ void ThreadPoolExecutor::runTask(const ThreadPtr& thread, Task&& task) {
   }
   stats.waitTime = startTime - task.enqueueTime_;
 
-  if (task.expiration_ > std::chrono::milliseconds(0) &&
-      stats.waitTime >= task.expiration_) {
-    stats.expired = true;
-    if (task.expireCallback_ != nullptr) {
-      task.expireCallback_();
-    }
-  } else {
+  {
     folly::RequestContextScopeGuard rctx(task.context_);
-    try {
-      task.func_();
-    } catch (const std::exception& e) {
-      LOG(ERROR) << "ThreadPoolExecutor: func threw unhandled "
-                 << typeid(e).name() << " exception: " << e.what();
-    } catch (...) {
-      LOG(ERROR) << "ThreadPoolExecutor: func threw unhandled non-exception "
-                    "object";
+    if (task.expiration_ > std::chrono::milliseconds(0) &&
+        stats.waitTime >= task.expiration_) {
+      task.func_ = nullptr;
+      stats.expired = true;
+      if (task.expireCallback_ != nullptr) {
+        invokeCatchingExns(
+            "ThreadPoolExecutor: expireCallback",
+            std::exchange(task.expireCallback_, {}));
+      }
+    } else {
+      invokeCatchingExns(
+          "ThreadPoolExecutor: func", std::exchange(task.func_, {}));
+      task.expireCallback_ = nullptr;
     }
+  }
+  if (!stats.expired) {
     stats.runTime = std::chrono::steady_clock::now() - startTime;
   }
 
   // Times in this USDT use granularity of std::chrono::steady_clock::duration,
   // which is platform dependent. On Facebook servers, the granularity is
   // nanoseconds. We explicitly do not perform any unit conversions to avoid
-  // unneccessary costs and leave it to consumers of this data to know what
+  // unnecessary costs and leave it to consumers of this data to know what
   // effective clock resolution is.
   FOLLY_SDT(
       folly,

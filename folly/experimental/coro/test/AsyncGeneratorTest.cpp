@@ -16,8 +16,6 @@
 
 #include <folly/Portability.h>
 
-#if FOLLY_HAS_COROUTINES
-
 #include <folly/ScopeGuard.h>
 #include <folly/Traits.h>
 #include <folly/experimental/coro/AsyncGenerator.h>
@@ -36,6 +34,8 @@
 #include <map>
 #include <string>
 #include <tuple>
+
+#if FOLLY_HAS_COROUTINES
 
 class AsyncGeneratorTest : public testing::Test {};
 
@@ -162,8 +162,7 @@ TEST_F(AsyncGeneratorTest, ThrowExceptionAfterFirstYield) {
 }
 
 TEST_F(
-    AsyncGeneratorTest,
-    ConsumingManySynchronousElementsDoesNotOverflowStack) {
+    AsyncGeneratorTest, ConsumingManySynchronousElementsDoesNotOverflowStack) {
   auto makeGenerator = []() -> folly::coro::AsyncGenerator<std::uint64_t> {
     for (std::uint64_t i = 0; i < 1'000'000; ++i) {
       co_yield i;
@@ -596,6 +595,38 @@ TEST(AsyncGeneraor, CoAwaitTry) {
     auto item3 = co_await folly::coro::co_awaitTry(gen.next());
     CHECK(item3.hasException());
     CHECK(item3.exception().is_compatible_with<SomeError>());
+  }());
+}
+
+TEST(AsyncGenerator, SafePoint) {
+  folly::coro::blockingWait([]() -> folly::coro::Task<void> {
+    enum class step_type {
+      init,
+      before_continue_sp,
+      after_continue_sp,
+      before_cancel_sp,
+      after_cancel_sp,
+    };
+    step_type step = step_type::init;
+
+    folly::CancellationSource cancelSrc;
+    auto gen =
+        folly::coro::co_invoke([&]() -> folly::coro::AsyncGenerator<int> {
+          step = step_type::before_continue_sp;
+          co_await folly::coro::co_safe_point;
+          step = step_type::after_continue_sp;
+
+          cancelSrc.requestCancellation();
+
+          step = step_type::before_cancel_sp;
+          co_await folly::coro::co_safe_point;
+          step = step_type::after_cancel_sp;
+        });
+
+    auto result = co_await folly::coro::co_awaitTry(
+        folly::coro::co_withCancellation(cancelSrc.getToken(), gen.next()));
+    EXPECT_THROW(result.value(), folly::OperationCancelled);
+    EXPECT_EQ(step_type::before_cancel_sp, step);
   }());
 }
 

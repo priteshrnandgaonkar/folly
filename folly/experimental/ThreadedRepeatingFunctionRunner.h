@@ -16,10 +16,11 @@
 
 #pragma once
 
-#include <folly/Function.h>
 #include <condition_variable>
 #include <thread>
 #include <vector>
+
+#include <folly/Function.h>
 
 namespace folly {
 
@@ -147,8 +148,7 @@ class ThreadedRepeatingFunctionRunner final {
   // Noexcept allows us to get a good backtrace on crashes -- otherwise,
   // std::terminate would get called **outside** of the thread function.
   void executeInLoop(
-      RepeatingFn,
-      std::chrono::milliseconds initialSleep) noexcept;
+      RepeatingFn, std::chrono::milliseconds initialSleep) noexcept;
 
   std::mutex stopMutex_;
   bool stopping_{false}; // protected by stopMutex_

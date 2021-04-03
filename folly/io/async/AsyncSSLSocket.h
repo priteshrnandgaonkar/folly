@@ -125,8 +125,7 @@ class AsyncSSLSocket : public AsyncSocket {
      * @param ex  An exception representing the error.
      */
     virtual void handshakeErr(
-        AsyncSSLSocket* sock,
-        const AsyncSocketException& ex) noexcept = 0;
+        AsyncSSLSocket* sock, const AsyncSocketException& ex) noexcept = 0;
   };
 
   class Timeout : public AsyncTimeout {
@@ -383,6 +382,18 @@ class AsyncSSLSocket : public AsyncSocket {
   void setEorTracking(bool track) override;
   size_t getRawBytesWritten() const override;
   size_t getRawBytesReceived() const override;
+
+  // End of methods inherited from AsyncTransport
+
+  /**
+   * Enable ByteEvents for this socket.
+   *
+   * ByteEvents cannot be enabled if TLS 1.0 or earlier is in use, as these
+   * client implementations often have trouble handling cases where a TLS
+   * record is split across multiple packets.
+   */
+  void enableByteEvents() override;
+
   void enableClientHelloParsing();
 
   /**
@@ -543,8 +554,7 @@ class AsyncSSLSocket : public AsyncSocket {
    * @param protoType      Whether this was an NPN or ALPN negotiation
    */
   virtual void getSelectedNextProtocol(
-      const unsigned char** protoName,
-      unsigned* protoLen) const;
+      const unsigned char** protoName, unsigned* protoLen) const;
 
   /**
    * Get the name of the protocol selected by the client during
@@ -561,8 +571,7 @@ class AsyncSSLSocket : public AsyncSocket {
    * @return false if openssl does not support NPN
    */
   virtual bool getSelectedNextProtocolNoThrow(
-      const unsigned char** protoName,
-      unsigned* protoLen) const;
+      const unsigned char** protoName, unsigned* protoLen) const;
 
   /**
    * Determine if the session specified during setSSLSession was reused
@@ -703,8 +712,7 @@ class AsyncSSLSocket : public AsyncSocket {
    * preference order.
    */
   void getSSLClientCiphers(
-      std::string& clientCiphers,
-      bool convertToString = true) const;
+      std::string& clientCiphers, bool convertToString = true) const;
 
   /**
    * Get the list of compression methods sent by the client in TLS Hello.
@@ -824,8 +832,14 @@ class AsyncSSLSocket : public AsyncSocket {
     asyncOperationFinishCallback_ = std::move(cb);
   }
 
+  // Only enable if security negotiation is deferred
   // zero copy is not supported by openssl.
-  bool setZeroCopy(bool /*enable*/) override { return false; }
+  bool setZeroCopy(bool enable) override {
+    if (sslState_ == STATE_UNENCRYPTED) {
+      return AsyncSocket::setZeroCopy(enable);
+    }
+    return false;
+  }
 
  private:
   /**
@@ -856,8 +870,8 @@ class AsyncSSLSocket : public AsyncSocket {
   void handleConnect() noexcept override;
 
   void invalidState(HandshakeCB* callback);
-  bool
-  willBlock(int ret, int* sslErrorOut, unsigned long* errErrorOut) noexcept;
+  bool willBlock(
+      int ret, int* sslErrorOut, unsigned long* errErrorOut) noexcept;
 
   void checkForImmediateRead() noexcept override;
   // AsyncSocket calls this at the wrong time for SSL

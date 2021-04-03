@@ -19,6 +19,7 @@
 #include <folly/Subprocess.h>
 #include <folly/experimental/io/FsUtil.h>
 #include <folly/portability/GTest.h>
+
 #include <glog/logging.h>
 
 namespace folly {
@@ -74,6 +75,10 @@ TEST(ProgramOptionsTest, Errors) {
 TEST(ProgramOptionsTest, Help) {
   // Not actually checking help output, just verifying that help doesn't fail
   callHelper({"--version"});
+  callHelper({"-h"});
+  callHelper({"-h", "foo"});
+  callHelper({"-h", "bar"});
+  callHelper({"-h", "--", "bar"});
   callHelper({"--help"});
   callHelper({"--help", "foo"});
   callHelper({"--help", "bar"});
@@ -83,6 +88,7 @@ TEST(ProgramOptionsTest, Help) {
   callHelper({"help", "bar"});
 
   // wrong command name
+  callHelper({"-h", "qux"}, 1);
   callHelper({"--help", "qux"}, 1);
   callHelper({"help", "qux"}, 1);
 
@@ -92,6 +98,7 @@ TEST(ProgramOptionsTest, Help) {
 
 TEST(ProgramOptionsTest, DevFull) {
   folly::File full("/dev/full", O_RDWR);
+  callHelper({"-h"}, 1, full.fd());
   callHelper({"--help"}, 1, full.fd());
 }
 
@@ -101,6 +108,8 @@ TEST(ProgramOptionsTest, CutArguments) {
       "running foo\n"
       "foo global-foo 43\n"
       "foo local-foo 42\n"
+      "foo conflict-global 42\n"
+      "foo conflict 42\n"
       "foo arg b\n"
       "foo arg --local-foo\n"
       "foo arg 44\n"
@@ -113,13 +122,17 @@ TEST(ProgramOptionsTest, Success) {
   EXPECT_EQ(
       "running foo\n"
       "foo global-foo 42\n"
-      "foo local-foo 42\n",
+      "foo local-foo 42\n"
+      "foo conflict-global 42\n"
+      "foo conflict 42\n",
       callHelper({"foo"}));
 
   EXPECT_EQ(
       "running foo\n"
       "foo global-foo 43\n"
       "foo local-foo 44\n"
+      "foo conflict-global 42\n"
+      "foo conflict 42\n"
       "foo arg a\n"
       "foo arg b\n",
       callHelper({"--global-foo", "43", "foo", "--local-foo", "44", "a", "b"}));
@@ -129,6 +142,8 @@ TEST(ProgramOptionsTest, Success) {
       "running foo\n"
       "foo global-foo 43\n"
       "foo local-foo 44\n"
+      "foo conflict-global 42\n"
+      "foo conflict 42\n"
       "foo arg a\n"
       "foo arg b\n",
       callHelper({"foo", "--global-foo", "43", "--local-foo", "44", "a", "b"}));
@@ -139,6 +154,8 @@ TEST(ProgramOptionsTest, Aliases) {
       "running foo\n"
       "foo global-foo 43\n"
       "foo local-foo 44\n"
+      "foo conflict-global 42\n"
+      "foo conflict 42\n"
       "foo arg a\n"
       "foo arg b\n",
       callHelper({"--global-foo", "43", "bar", "--local-foo", "44", "a", "b"}));
@@ -151,6 +168,34 @@ TEST(ProgramOptionsTest, BuiltinCommand) {
       app.isBuiltinCommand(NestedCommandLineApp::kVersionCommand.str()));
   ASSERT_FALSE(app.isBuiltinCommand(
       NestedCommandLineApp::kHelpCommand.str() + "nonsense"));
+}
+
+TEST(ProgramOptionsTest, ConflictingFlags) {
+  EXPECT_EQ(
+      "running foo\n"
+      "foo global-foo 42\n"
+      "foo local-foo 42\n"
+      "foo conflict-global 43\n"
+      "foo conflict 42\n",
+      callHelper({"--conflict-global", "43", "foo"}));
+
+  EXPECT_EQ(
+      "running foo\n"
+      "foo global-foo 42\n"
+      "foo local-foo 42\n"
+      "foo conflict-global 43\n"
+      "foo conflict 42\n",
+      callHelper({"foo", "--conflict-global", "43"}));
+
+  EXPECT_EQ(
+      "running foo\n"
+      "foo global-foo 42\n"
+      "foo local-foo 42\n"
+      "foo conflict-global 42\n"
+      "foo conflict 43\n",
+      callHelper({"foo", "--conflict", "43"}));
+
+  callHelper({"--conflict", "43", "foo"}, 1);
 }
 
 } // namespace test

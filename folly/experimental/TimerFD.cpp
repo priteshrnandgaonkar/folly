@@ -15,8 +15,10 @@
  */
 
 #include <folly/experimental/TimerFD.h>
-#ifdef FOLLY_HAVE_TIMERFD
+
 #include <folly/FileUtil.h>
+
+#ifdef FOLLY_HAVE_TIMERFD
 #include <sys/timerfd.h>
 #endif
 
@@ -120,8 +122,7 @@ void TimerFD::cancel() {
 }
 
 TimerFD::TimerFDAsyncTimeout::TimerFDAsyncTimeout(
-    folly::EventBase* eventBase,
-    TimerFD* timerFd)
+    folly::EventBase* eventBase, TimerFD* timerFd)
     : folly::AsyncTimeout(eventBase), timerFd_(timerFd) {}
 
 void TimerFD::TimerFDAsyncTimeout::timeoutExpired() noexcept {

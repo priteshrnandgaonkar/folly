@@ -16,14 +16,15 @@
 
 #pragma once
 
+#include <algorithm>
+#include <atomic>
+#include <mutex>
+
 #include <folly/container/HeterogeneousAccess.h>
 #include <folly/container/detail/F14Mask.h>
 #include <folly/lang/Exception.h>
 #include <folly/lang/Launder.h>
 #include <folly/synchronization/Hazptr.h>
-#include <algorithm>
-#include <atomic>
-#include <mutex>
 
 #if FOLLY_SSE_PREREQ(4, 2) && !FOLLY_MOBILE
 #include <nmmintrin.h>
@@ -230,6 +231,8 @@ class alignas(64) BucketTable {
 
   ~BucketTable() {
     auto buckets = buckets_.load(std::memory_order_relaxed);
+    // To catch use-after-destruction bugs in user code.
+    buckets_.store(nullptr, std::memory_order_release);
     // We can delete and not retire() here, since users must have
     // their own synchronization around destruction.
     auto count = bucket_count_.load(std::memory_order_relaxed);
@@ -286,6 +289,7 @@ class alignas(64) BucketTable {
       return; // Rehash only if expanding.
     }
     auto buckets = buckets_.load(std::memory_order_relaxed);
+    DCHECK(buckets); // Use-after-destruction by user.
     auto newbuckets = Buckets::create(bucket_count, cohort);
     load_factor_nodes_ = bucket_count * load_factor_;
     for (size_t i = 0; i < oldcount; i++) {
@@ -330,6 +334,7 @@ class alignas(64) BucketTable {
     }
 
     auto oldbuckets = buckets_.load(std::memory_order_relaxed);
+    DCHECK(oldbuckets); // Use-after-destruction by user.
     seqlock_.fetch_add(1, std::memory_order_release);
     bucket_count_.store(bucket_count, std::memory_order_release);
     buckets_.store(newbuckets, std::memory_order_release);
@@ -369,6 +374,7 @@ class alignas(64) BucketTable {
 
       size_t bcount = bucket_count_.load(std::memory_order_relaxed);
       auto buckets = buckets_.load(std::memory_order_relaxed);
+      DCHECK(buckets); // Use-after-destruction by user.
       auto idx = getIdx(bcount, h);
       auto head = &buckets->buckets_[idx]();
       node = head->load(std::memory_order_relaxed);
@@ -424,6 +430,7 @@ class alignas(64) BucketTable {
       buckets_.store(newbuckets, std::memory_order_release);
       clearSize();
     }
+    DCHECK(buckets); // Use-after-destruction by user.
     buckets->retire(concurrenthashmap::HazptrTableDeleter(bcount));
   }
 
@@ -507,8 +514,8 @@ class alignas(64) BucketTable {
     FOLLY_ALWAYS_INLINE explicit Iterator(std::nullptr_t) : hazptrs_(nullptr) {}
     FOLLY_ALWAYS_INLINE ~Iterator() {}
 
-    void
-    setNode(Node* node, Buckets* buckets, size_t bucket_count, uint64_t idx) {
+    void setNode(
+        Node* node, Buckets* buckets, size_t bucket_count, uint64_t idx) {
       node_ = node;
       buckets_ = buckets;
       idx_ = idx;
@@ -593,9 +600,7 @@ class alignas(64) BucketTable {
     return (hash >> ShardBits) & (bucket_count - 1);
   }
   void getBucketsAndCount(
-      size_t& bcount,
-      Buckets*& buckets,
-      hazptr_holder<Atom>& hazptr) {
+      size_t& bcount, Buckets*& buckets, hazptr_holder<Atom>& hazptr) {
     while (true) {
       auto seqlock = seqlock_.load(std::memory_order_acquire);
       bcount = bucket_count_.load(std::memory_order_acquire);
@@ -633,6 +638,7 @@ class alignas(64) BucketTable {
       bcount = bucket_count_.load(std::memory_order_relaxed);
     }
 
+    DCHECK(buckets); // Use-after-destruction by user.
     auto idx = getIdx(bcount, h);
     auto head = &buckets->buckets_[idx]();
     auto node = head->load(std::memory_order_relaxed);
@@ -689,6 +695,7 @@ class alignas(64) BucketTable {
 
       // Reload correct bucket.
       buckets = buckets_.load(std::memory_order_relaxed);
+      DCHECK(buckets); // Use-after-destruction by user.
       bcount <<= 1;
       hazbuckets.reset(buckets);
       idx = getIdx(bcount, h);
@@ -1124,6 +1131,8 @@ class alignas(64) SIMDTable {
 
   ~SIMDTable() {
     auto chunks = chunks_.load(std::memory_order_relaxed);
+    // To catch use-after-destruction bugs in user code.
+    chunks_.store(nullptr, std::memory_order_release);
     // We can delete and not retire() here, since users must have
     // their own synchronization around destruction.
     auto count = chunk_count_.load(std::memory_order_relaxed);
@@ -1299,6 +1308,7 @@ class alignas(64) SIMDTable {
 
     size_t ccount = chunk_count_.load(std::memory_order_relaxed);
     auto chunks = chunks_.load(std::memory_order_relaxed);
+    DCHECK(chunks); // Use-after-destruction by user.
     size_t chunk_idx, tag_idx;
 
     Node* node = find_internal(key, hp, chunks, ccount, chunk_idx, tag_idx);
@@ -1356,6 +1366,7 @@ class alignas(64) SIMDTable {
       chunks_.store(newchunks, std::memory_order_release);
       clearSize();
     }
+    DCHECK(chunks); // Use-after-destruction by user.
     chunks->reclaim_nodes(ccount);
     chunks->retire(HazptrTableDeleter(ccount));
   }
@@ -1451,6 +1462,7 @@ class alignas(64) SIMDTable {
       chunks = chunks_.load(std::memory_order_relaxed);
     }
 
+    DCHECK(chunks); // Use-after-destruction by user.
     node = find_internal(k, hp, chunks, ccount, chunk_idx, tag_idx);
 
     it.hazptrs_[0].reset(chunks);
@@ -1478,6 +1490,7 @@ class alignas(64) SIMDTable {
         rehash_internal(ccount << 1, cohort);
         ccount = chunk_count_.load(std::memory_order_relaxed);
         chunks = chunks_.load(std::memory_order_relaxed);
+        DCHECK(chunks); // Use-after-destruction by user.
         it.hazptrs_[0].reset(chunks);
       }
     }
@@ -1485,8 +1498,7 @@ class alignas(64) SIMDTable {
   }
 
   void rehash_internal(
-      size_t new_chunk_count,
-      hazptr_obj_cohort<Atom>* cohort) {
+      size_t new_chunk_count, hazptr_obj_cohort<Atom>* cohort) {
     DCHECK(isPowTwo(new_chunk_count));
     auto old_chunk_count = chunk_count_.load(std::memory_order_relaxed);
     if (old_chunk_count >= new_chunk_count) {
@@ -1497,6 +1509,7 @@ class alignas(64) SIMDTable {
     grow_threshold_ = new_chunk_count * Chunk::kCapacity * load_factor_;
 
     for (size_t i = 0; i < old_chunk_count; i++) {
+      DCHECK(old_chunks); // Use-after-destruction by user.
       Chunk* oldchunk = old_chunks->getChunk(i, old_chunk_count);
       auto occupied = oldchunk->occupiedIter();
       while (occupied.hasNext()) {
@@ -1523,9 +1536,7 @@ class alignas(64) SIMDTable {
   }
 
   void getChunksAndCount(
-      size_t& ccount,
-      Chunks*& chunks,
-      hazptr_holder<Atom>& hazptr) {
+      size_t& ccount, Chunks*& chunks, hazptr_holder<Atom>& hazptr) {
     while (true) {
       auto seqlock = seqlock_.load(std::memory_order_acquire);
       ccount = chunk_count_.load(std::memory_order_acquire);
@@ -1538,8 +1549,8 @@ class alignas(64) SIMDTable {
     DCHECK(chunks);
   }
 
-  std::pair<size_t, size_t>
-  findEmptyInsertLocation(Chunks* chunks, size_t ccount, const HashPair& hp) {
+  std::pair<size_t, size_t> findEmptyInsertLocation(
+      Chunks* chunks, size_t ccount, const HashPair& hp) {
     size_t chunk_idx = hp.first;
     Chunk* dst_chunk = chunks->getChunk(chunk_idx, ccount);
     auto firstEmpty = dst_chunk->firstEmpty();
@@ -1736,10 +1747,7 @@ class alignas(64) ConcurrentHashMapSegment {
 
   template <typename Key, typename Value>
   bool assign_if_equal(
-      Iterator& it,
-      Key&& k,
-      const ValueType& expected,
-      Value&& desired) {
+      Iterator& it, Key&& k, const ValueType& expected, Value&& desired) {
     auto node = (Node*)Allocator().allocate(sizeof(Node));
     new (node)
         Node(cohort_, std::forward<Key>(k), std::forward<Value>(desired));
@@ -1769,11 +1777,7 @@ class alignas(64) ConcurrentHashMapSegment {
 
   template <typename MatchFunc, typename K, typename... Args>
   bool insert_internal(
-      Iterator& it,
-      const K& k,
-      InsertType type,
-      MatchFunc match,
-      Node* cur) {
+      Iterator& it, const K& k, InsertType type, MatchFunc match, Node* cur) {
     return impl_.insert(it, k, type, match, cur, cohort_);
   }
 

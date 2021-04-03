@@ -16,13 +16,14 @@
 
 #include <folly/experimental/coro/Transform.h>
 
+#if FOLLY_HAS_COROUTINES
+
 namespace folly {
 namespace coro {
 
 template <typename TransformFn, typename Reference, typename Value>
 AsyncGenerator<invoke_result_t<TransformFn&, Reference>> transform(
-    AsyncGenerator<Reference, Value> source,
-    TransformFn transformFn) {
+    AsyncGenerator<Reference, Value> source, TransformFn transformFn) {
   while (auto item = co_await source.next()) {
     co_yield invoke(transformFn, std::move(item).value());
   }
@@ -30,3 +31,5 @@ AsyncGenerator<invoke_result_t<TransformFn&, Reference>> transform(
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

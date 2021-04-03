@@ -26,6 +26,7 @@
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/IOExecutor.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
+#include <folly/executors/InlineExecutor.h>
 #include <folly/system/HardwareConcurrency.h>
 
 using namespace folly;
@@ -35,7 +36,7 @@ namespace {
 class GlobalTag {};
 
 // aka InlineExecutor
-class DefaultCPUExecutor : public Executor {
+class DefaultCPUExecutor : public InlineLikeExecutor {
  public:
   FOLLY_NOINLINE void add(Func f) override { f(); }
 };
@@ -149,7 +150,7 @@ Executor::KeepAlive<> getGlobalCPUExecutor() {
   return folly::getKeepAliveToken(executorPtrPtr->get());
 }
 
-Executor::KeepAlive<> getGlobalIOExecutor() {
+Executor::KeepAlive<IOExecutor> getGlobalIOExecutor() {
   auto executorPtrPtr = getImmutablePtrPtr<IOExecutor>();
   if (!executorPtrPtr) {
     throw std::runtime_error("Requested global IO executor during shutdown.");

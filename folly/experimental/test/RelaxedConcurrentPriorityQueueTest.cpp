@@ -17,6 +17,7 @@
 #include <thread>
 
 #include <boost/thread.hpp>
+
 #include <folly/Random.h>
 #include <folly/SpinLock.h>
 #include <folly/experimental/FlatCombiningPriorityQueue.h>
@@ -24,6 +25,7 @@
 #include <folly/portability/GFlags.h>
 #include <folly/portability/GTest.h>
 #include <folly/test/DeterministicSchedule.h>
+
 #include <glog/logging.h>
 
 using namespace folly;
@@ -999,8 +1001,8 @@ static uint64_t throughtput_test(std::string name, uint64_t initial_size) {
 }
 
 template <class PriorityQueue>
-static void
-accuracy_test(std::string name, uint64_t initial_size, uint32_t top_percent) {
+static void accuracy_test(
+    std::string name, uint64_t initial_size, uint32_t top_percent) {
   int avg = 0;
   int reps = 15;
   int valid = initial_size / top_percent;

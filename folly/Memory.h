@@ -30,9 +30,11 @@
 #include <folly/ConstexprMath.h>
 #include <folly/Likely.h>
 #include <folly/Traits.h>
+#include <folly/Utility.h>
 #include <folly/functional/Invoke.h>
 #include <folly/lang/Align.h>
 #include <folly/lang/Exception.h>
+#include <folly/lang/Thunk.h>
 #include <folly/memory/Malloc.h>
 #include <folly/portability/Config.h>
 #include <folly/portability/Malloc.h>
@@ -198,8 +200,7 @@ template <
     typename Alloc,
     size_t kAlign = alignof(typename std::allocator_traits<Alloc>::value_type)>
 typename std::allocator_traits<Alloc>::pointer allocateOverAligned(
-    Alloc const& alloc,
-    size_t n) {
+    Alloc const& alloc, size_t n) {
   void* raw = nullptr;
   detail::rawOverAlignedImpl<Alloc, kAlign, true>(alloc, n, raw);
   return std::pointer_traits<typename std::allocator_traits<Alloc>::pointer>::
@@ -425,6 +426,51 @@ std::unique_ptr<remove_cvref_t<T>> copy_to_unique_ptr(T&& t) {
 template <typename T>
 std::shared_ptr<remove_cvref_t<T>> copy_to_shared_ptr(T&& t) {
   return std::make_shared<remove_cvref_t<T>>(static_cast<T&&>(t));
+}
+
+//  erased_unique_ptr
+//
+//  A type-erased smart-ptr with unique ownership to a heap-allocated object.
+using erased_unique_ptr = std::unique_ptr<void, void (*)(void*)>;
+
+//  to_erased_unique_ptr
+//
+//  Converts an owning pointer to an object to an erased_unique_ptr.
+template <typename T>
+erased_unique_ptr to_erased_unique_ptr(T* const ptr) noexcept {
+  return {ptr, detail::thunk::ruin<T>};
+}
+
+//  to_erased_unique_ptr
+//
+//  Converts an owning std::unique_ptr to an erased_unique_ptr.
+template <typename T>
+erased_unique_ptr to_erased_unique_ptr(std::unique_ptr<T> ptr) noexcept {
+  return to_erased_unique_ptr(ptr.release());
+}
+
+//  make_erased_unique
+//
+//  Allocate an object of the T on the heap, constructed with a..., and return
+//  an owning erased_unique_ptr to it.
+template <typename T, typename... A>
+erased_unique_ptr make_erased_unique(A&&... a) {
+  return to_erased_unique_ptr(std::make_unique<T>(static_cast<A&&>(a)...));
+}
+
+//  copy_to_erased_unique_ptr
+//
+//  Copy an object to the heap and return an owning erased_unique_ptr to it.
+template <typename T>
+erased_unique_ptr copy_to_erased_unique_ptr(T&& obj) {
+  return to_erased_unique_ptr(copy_to_unique_ptr(static_cast<T&&>(obj)));
+}
+
+//  empty_erased_unique_ptr
+//
+//  Return an empty erased_unique_ptr.
+inline erased_unique_ptr empty_erased_unique_ptr() {
+  return {nullptr, nullptr};
 }
 
 /**
@@ -683,8 +729,7 @@ class allocator_delete : private std::remove_reference<Alloc>::type {
  */
 template <typename T, typename Alloc, typename... Args>
 std::unique_ptr<T, allocator_delete<Alloc>> allocate_unique(
-    Alloc const& alloc,
-    Args&&... args) {
+    Alloc const& alloc, Args&&... args) {
   using traits = std::allocator_traits<Alloc>;
   struct DeferCondDeallocate {
     bool& cond;

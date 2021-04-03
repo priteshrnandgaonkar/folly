@@ -17,9 +17,11 @@
 #pragma once
 
 #include <folly/Traits.h>
+#include <folly/experimental/coro/Coroutine.h>
 
-#include <experimental/coroutine>
 #include <type_traits>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -43,7 +45,7 @@ namespace detail {
 template <typename T>
 inline constexpr bool is_coroutine_handle_v =
     folly::detail::is_instantiation_of_v< //
-        std::experimental::coroutine_handle,
+        coroutine_handle,
         T>;
 
 } // namespace detail
@@ -56,10 +58,10 @@ inline constexpr bool is_coroutine_handle_v =
 ///
 /// An 'Awaiter' must have the following three methods.
 /// - awaiter.await_ready() -> bool
-/// - awaiter.await_suspend(std::experimental::coroutine_handle<void>()) ->
+/// - awaiter.await_suspend(coroutine_handle<void>()) ->
 ///     void OR
 ///     bool OR
-///     std::experimental::coroutine_handle<T> for some T
+///     coroutine_handle<T> for some T
 /// - awaiter.await_resume()
 ///
 /// Note that we don't check for a valid await_suspend() method here since
@@ -209,3 +211,5 @@ constexpr bool promiseHasAsyncFrame_v<
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

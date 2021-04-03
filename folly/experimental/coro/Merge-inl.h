@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+#include <exception>
+#include <memory>
+
 #include <folly/CancellationToken.h>
 #include <folly/Executor.h>
 #include <folly/ScopeGuard.h>
@@ -27,8 +30,8 @@
 #include <folly/experimental/coro/detail/BarrierTask.h>
 #include <folly/experimental/coro/detail/CurrentAsyncFrame.h>
 #include <folly/experimental/coro/detail/Helpers.h>
-#include <exception>
-#include <memory>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -191,3 +194,5 @@ AsyncGenerator<Reference, Value> merge(
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

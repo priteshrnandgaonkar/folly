@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <cstdlib>
+
 #include <folly/Likely.h>
 #include <folly/Portability.h>
 #include <folly/Range.h>
@@ -24,7 +26,6 @@
 #include <folly/logging/LoggerDB.h>
 #include <folly/logging/ObjectToString.h>
 #include <folly/logging/RateLimiter.h>
-#include <cstdlib>
 
 /*
  * This file contains the XLOG() and XLOGF() macros.
@@ -104,14 +105,34 @@
  *
  * Note that this is threadsafe.
  */
-#define XLOG_EVERY_MS(level, ms, ...)                                    \
-  XLOG_IF(                                                               \
-      level,                                                             \
-      [] {                                                               \
-        static ::folly::logging::IntervalRateLimiter                     \
-            folly_detail_xlog_limiter(1, std::chrono::milliseconds(ms)); \
-        return folly_detail_xlog_limiter.check();                        \
-      }(),                                                               \
+#define XLOG_EVERY_MS(level, ms, ...)                                  \
+  XLOG_IF(                                                             \
+      level,                                                           \
+      [__folly_detail_xlog_ms = ms] {                                  \
+        static ::folly::logging::IntervalRateLimiter                   \
+            folly_detail_xlog_limiter(                                 \
+                1, std::chrono::milliseconds(__folly_detail_xlog_ms)); \
+        return folly_detail_xlog_limiter.check();                      \
+      }(),                                                             \
+      ##__VA_ARGS__)
+
+/**
+ * Similar to XLOGF(...) except only log a message every @param ms
+ * milliseconds.
+ *
+ * Note that this is threadsafe.
+ */
+#define XLOGF_EVERY_MS(level, ms, fmt, arg1, ...)                      \
+  XLOGF_IF(                                                            \
+      level,                                                           \
+      [__folly_detail_xlog_ms = ms] {                                  \
+        static ::folly::logging::IntervalRateLimiter                   \
+            folly_detail_xlog_limiter(                                 \
+                1, std::chrono::milliseconds(__folly_detail_xlog_ms)); \
+        return folly_detail_xlog_limiter.check();                      \
+      }(),                                                             \
+      fmt,                                                             \
+      arg1,                                                            \
       ##__VA_ARGS__)
 
 namespace folly {
@@ -234,6 +255,35 @@ FOLLY_EXPORT FOLLY_ALWAYS_INLINE bool xlogEveryNThreadImpl(size_t n) {
         return folly_detail_xlog_limiter.check();                              \
       }(),                                                                     \
       ##__VA_ARGS__)
+
+namespace folly {
+namespace detail {
+
+template <typename Tag>
+FOLLY_EXPORT FOLLY_ALWAYS_INLINE bool xlogFirstNExactImpl(std::size_t n) {
+  static std::atomic<std::size_t> counter{0};
+  auto const value = counter.load(std::memory_order_relaxed);
+  return value < n && counter.fetch_add(1, std::memory_order_relaxed) < n;
+}
+
+} // namespace detail
+} // namespace folly
+
+/**
+ * Similar to XLOG(...) except only log a message the first n times, exactly.
+ *
+ * The internal counter is process-global and threadsafe and exchanges are
+ * atomic.
+ */
+#define XLOG_FIRST_N(level, n, ...)                                            \
+  XLOG_IF(                                                                     \
+      level,                                                                   \
+      [&] {                                                                    \
+        struct folly_detail_xlog_tag {};                                       \
+        return ::folly::detail::xlogFirstNExactImpl<folly_detail_xlog_tag>(n); \
+      }(),                                                                     \
+      ##__VA_ARGS__)
+
 /**
  * FOLLY_XLOG_STRIP_PREFIXES can be defined to a string containing a
  * colon-separated list of directory prefixes to strip off from the filename
@@ -402,8 +452,7 @@ FOLLY_EXPORT FOLLY_ALWAYS_INLINE bool xlogEveryNThreadImpl(size_t n) {
   namespace {                                                          \
   XLOG_SET_CATEGORY_CHECK                                              \
   constexpr inline folly::StringPiece getXlogCategoryName(             \
-      folly::StringPiece,                                              \
-      int) {                                                           \
+      folly::StringPiece, int) {                                       \
     return category;                                                   \
   }                                                                    \
   constexpr inline bool isXlogCategoryOverridden(int) { return true; } \
@@ -737,8 +786,7 @@ constexpr const char* xlogStripFilenameRecursive(
  * would return "src/foo.cpp"
  */
 constexpr const char* xlogStripFilename(
-    const char* filename,
-    const char* prefixes) {
+    const char* filename, const char* prefixes) {
   return detail::xlogStripFilenameRecursive(filename, prefixes, 0, 0, true);
 }
 } // namespace folly
@@ -770,8 +818,7 @@ namespace {
  */
 template <typename T>
 constexpr inline folly::StringPiece getXlogCategoryName(
-    folly::StringPiece filename,
-    T) {
+    folly::StringPiece filename, T) {
   return filename;
 }
 

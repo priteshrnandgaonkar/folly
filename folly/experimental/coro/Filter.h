@@ -17,6 +17,9 @@
 #pragma once
 
 #include <folly/experimental/coro/AsyncGenerator.h>
+#include <folly/experimental/coro/Coroutine.h>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -35,10 +38,11 @@ namespace coro {
 //   }
 template <typename FilterFn, typename Reference, typename Value>
 AsyncGenerator<Reference, Value> filter(
-    AsyncGenerator<Reference, Value> source,
-    FilterFn filterFn);
+    AsyncGenerator<Reference, Value> source, FilterFn filterFn);
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES
 
 #include <folly/experimental/coro/Filter-inl.h>

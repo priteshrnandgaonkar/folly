@@ -73,10 +73,8 @@ TEST(IOBuf, Simple) {
 }
 
 void testAllocSize(uint32_t requestedCapacity) {
-  auto expectedSize = IOBuf::goodSize(requestedCapacity);
   unique_ptr<IOBuf> iobuf(IOBuf::create(requestedCapacity));
   EXPECT_GE(iobuf->capacity(), requestedCapacity);
-  EXPECT_EQ(iobuf->capacity(), expectedSize);
 }
 
 TEST(IOBuf, AllocSizes) {
@@ -989,10 +987,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(1, 2, 10), // element count
         ::testing::Bool(), // shared
         ::testing::Values(
-            CREATE,
-            TAKE_OWNERSHIP_MALLOC,
-            TAKE_OWNERSHIP_CUSTOM,
-            USER_OWNED)));
+            CREATE, TAKE_OWNERSHIP_MALLOC, TAKE_OWNERSHIP_CUSTOM, USER_OWNED)));
 
 TEST(IOBuf, getIov) {
   uint32_t fillSeed = 0xdeadbeef;

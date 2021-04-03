@@ -30,8 +30,8 @@
 #include <folly/compression/Utils.h>
 
 static_assert(
-    ZSTD_VERSION_NUMBER >= 10302,
-    "zstd-1.3.2 is the minimum supported zstd version.");
+    ZSTD_VERSION_NUMBER >= 10400,
+    "zstd-1.4.0 is the minimum supported zstd version.");
 
 using folly::io::compression::detail::dataStartsWithLE;
 using folly::io::compression::detail::prefixToStringLE;
@@ -42,40 +42,6 @@ namespace folly {
 namespace io {
 namespace zstd {
 namespace {
-
-// Compatibility helpers for zstd versions < 1.4.0
-#if ZSTD_VERSION_NUMBER < 10400
-
-#define ZSTD_CCtxParams_setParameter ZSTD_CCtxParam_setParameter
-
-#endif
-
-// Compatibility helpers for zstd versions < 1.3.8.
-#if ZSTD_VERSION_NUMBER < 10308
-
-#define ZSTD_compressStream2 ZSTD_compress_generic
-#define ZSTD_c_compressionLevel ZSTD_p_compressionLevel
-#define ZSTD_c_contentSizeFlag ZSTD_p_contentSizeFlag
-
-void resetCCtxSessionAndParameters(ZSTD_CCtx* cctx) {
-  ZSTD_CCtx_reset(cctx);
-}
-
-void resetDCtxSessionAndParameters(ZSTD_DCtx* dctx) {
-  ZSTD_DCtx_reset(dctx);
-}
-
-#else
-
-void resetCCtxSessionAndParameters(ZSTD_CCtx* cctx) {
-  ZSTD_CCtx_reset(cctx, ZSTD_reset_session_and_parameters);
-}
-
-void resetDCtxSessionAndParameters(ZSTD_DCtx* dctx) {
-  ZSTD_DCtx_reset(dctx, ZSTD_reset_session_and_parameters);
-}
-
-#endif
 
 size_t zstdThrowIfError(size_t rc) {
   if (!ZSTD_isError(rc)) {
@@ -103,15 +69,14 @@ class ZSTDStreamCodec final : public StreamCodec {
   explicit ZSTDStreamCodec(Options options);
 
   std::vector<std::string> validPrefixes() const override;
-  bool canUncompress(const IOBuf* data, Optional<uint64_t> uncompressedLength)
-      const override;
+  bool canUncompress(
+      const IOBuf* data, Optional<uint64_t> uncompressedLength) const override;
 
  private:
   bool doNeedsUncompressedLength() const override;
   uint64_t doMaxCompressedLength(uint64_t uncompressedLength) const override;
   Optional<uint64_t> doGetUncompressedLength(
-      IOBuf const* data,
-      Optional<uint64_t> uncompressedLength) const override;
+      IOBuf const* data, Optional<uint64_t> uncompressedLength) const override;
 
   void doResetStream() override;
   bool doCompressStream(
@@ -127,7 +92,6 @@ class ZSTDStreamCodec final : public StreamCodec {
   void resetDCtx();
 
   Options options_;
-  bool needReset_{true};
   ZSTD_CCtx_Pool::Ref cctx_{getNULL_ZSTD_CCtx()};
   ZSTD_DCtx_Pool::Ref dctx_{getNULL_ZSTD_DCtx()};
 };
@@ -138,8 +102,8 @@ std::vector<std::string> ZSTDStreamCodec::validPrefixes() const {
   return {prefixToStringLE(kZSTDMagicLE)};
 }
 
-bool ZSTDStreamCodec::canUncompress(const IOBuf* data, Optional<uint64_t>)
-    const {
+bool ZSTDStreamCodec::canUncompress(
+    const IOBuf* data, Optional<uint64_t>) const {
   return dataStartsWithLE(data, kZSTDMagicLE);
 }
 
@@ -163,8 +127,7 @@ uint64_t ZSTDStreamCodec::doMaxCompressedLength(
 }
 
 Optional<uint64_t> ZSTDStreamCodec::doGetUncompressedLength(
-    IOBuf const* data,
-    Optional<uint64_t> uncompressedLength) const {
+    IOBuf const* data, Optional<uint64_t> uncompressedLength) const {
   // Read decompressed size from frame if available in first IOBuf.
   auto const decompressedSize =
       ZSTD_getFrameContentSize(data->data(), data->length());
@@ -179,17 +142,14 @@ Optional<uint64_t> ZSTDStreamCodec::doGetUncompressedLength(
 }
 
 void ZSTDStreamCodec::doResetStream() {
-  needReset_ = true;
+  cctx_.reset(nullptr);
+  dctx_.reset(nullptr);
 }
 
 void ZSTDStreamCodec::resetCCtx() {
-  if (!cctx_) {
-    cctx_ = getZSTD_CCtx();
-    if (!cctx_) {
-      throw std::bad_alloc{};
-    }
-  }
-  resetCCtxSessionAndParameters(cctx_.get());
+  DCHECK(cctx_ == nullptr);
+  cctx_ = getZSTD_CCtx(); // Gives us a clean context
+  DCHECK(cctx_ != nullptr);
   zstdThrowIfError(
       ZSTD_CCtx_setParametersUsingCCtxParams(cctx_.get(), options_.params()));
   zstdThrowIfError(ZSTD_CCtx_setPledgedSrcSize(
@@ -197,12 +157,9 @@ void ZSTDStreamCodec::resetCCtx() {
 }
 
 bool ZSTDStreamCodec::doCompressStream(
-    ByteRange& input,
-    MutableByteRange& output,
-    StreamCodec::FlushOp flushOp) {
-  if (needReset_) {
+    ByteRange& input, MutableByteRange& output, StreamCodec::FlushOp flushOp) {
+  if (cctx_ == nullptr) {
     resetCCtx();
-    needReset_ = false;
   }
   ZSTD_inBuffer in = {input.data(), input.size(), 0};
   ZSTD_outBuffer out = {output.data(), output.size(), 0};
@@ -216,7 +173,12 @@ bool ZSTDStreamCodec::doCompressStream(
     case StreamCodec::FlushOp::NONE:
       return false;
     case StreamCodec::FlushOp::FLUSH:
+      return rc == 0;
     case StreamCodec::FlushOp::END:
+      if (rc == 0) {
+        // Surrender our cctx_
+        doResetStream();
+      }
       return rc == 0;
     default:
       throw std::invalid_argument("ZSTD: invalid FlushOp");
@@ -224,13 +186,9 @@ bool ZSTDStreamCodec::doCompressStream(
 }
 
 void ZSTDStreamCodec::resetDCtx() {
-  if (!dctx_) {
-    dctx_ = getZSTD_DCtx();
-    if (!dctx_) {
-      throw std::bad_alloc{};
-    }
-  }
-  resetDCtxSessionAndParameters(dctx_.get());
+  DCHECK(dctx_ == nullptr);
+  dctx_ = getZSTD_DCtx(); // Gives us a clean context
+  DCHECK(dctx_ != nullptr);
   if (options_.maxWindowSize() != 0) {
     zstdThrowIfError(
         ZSTD_DCtx_setMaxWindowSize(dctx_.get(), options_.maxWindowSize()));
@@ -238,12 +196,9 @@ void ZSTDStreamCodec::resetDCtx() {
 }
 
 bool ZSTDStreamCodec::doUncompressStream(
-    ByteRange& input,
-    MutableByteRange& output,
-    StreamCodec::FlushOp) {
-  if (needReset_) {
+    ByteRange& input, MutableByteRange& output, StreamCodec::FlushOp) {
+  if (dctx_ == nullptr) {
     resetDCtx();
-    needReset_ = false;
   }
   ZSTD_inBuffer in = {input.data(), input.size(), 0};
   ZSTD_outBuffer out = {output.data(), output.size(), 0};
@@ -253,6 +208,10 @@ bool ZSTDStreamCodec::doUncompressStream(
   };
   size_t const rc =
       zstdThrowIfError(ZSTD_decompressStream(dctx_.get(), &out, &in));
+  if (rc == 0) {
+    // Surrender our dctx_
+    doResetStream();
+  }
   return rc == 0;
 }
 
@@ -262,16 +221,7 @@ Options::Options(int level) : params_(ZSTD_createCCtxParams()), level_(level) {
   if (params_ == nullptr) {
     throw std::bad_alloc{};
   }
-#if ZSTD_VERSION_NUMBER >= 10304
   zstdThrowIfError(ZSTD_CCtxParams_init(params_.get(), level));
-#else
-  zstdThrowIfError(ZSTD_initCCtxParams(params_.get(), level));
-  set(ZSTD_c_contentSizeFlag, 1);
-#endif
-  // zstd-1.3.4 is buggy and only disables Huffman decompression for negative
-  // compression levels if this call is present. This call is begign in other
-  // versions.
-  set(ZSTD_c_compressionLevel, level);
 }
 
 void Options::set(ZSTD_cParameter param, unsigned value) {

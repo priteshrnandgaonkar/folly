@@ -18,14 +18,12 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 
 #include <folly/CPortability.h>
 #include <folly/CppAttributes.h>
 #include <folly/Portability.h>
-
-#if FOLLY_HAS_COROUTINES
-#include <experimental/coroutine>
-#endif
+#include <folly/experimental/coro/Coroutine.h>
 
 namespace folly {
 
@@ -208,8 +206,7 @@ void checkAsyncStackFrameIsActive(const folly::AsyncStackFrame& frame) noexcept;
 // This is typically called immediately prior to executing a callback that
 // resumes the async operation represented by 'frame'.
 void activateAsyncStackFrame(
-    folly::AsyncStackRoot& root,
-    folly::AsyncStackFrame& frame) noexcept;
+    folly::AsyncStackRoot& root, folly::AsyncStackFrame& frame) noexcept;
 
 // Deactivate the specified AsyncStackFrame, clearing the current 'topFrame'.
 //
@@ -255,14 +252,23 @@ void popAsyncStackFrameCallee(folly::AsyncStackFrame& calleeFrame) noexcept;
 // you should also never activate this frame.
 AsyncStackFrame& getDetachedRootAsyncStackFrame() noexcept;
 
+// Given an initial AsyncStackFrame, this will write `addresses` with
+// the return addresses of the frames in this async stack trace, up to
+// `maxAddresses` written.
+// This assumes `addresses` has `maxAddresses` allocated space available.
+// Returns the number of frames written.
+size_t getAsyncStackTraceFromInitialFrame(
+    folly::AsyncStackFrame* initialFrame,
+    std::uintptr_t* addresses,
+    size_t maxAddresses);
+
 #if FOLLY_HAS_COROUTINES
 
 // Resume the specified coroutine after installing a new AsyncStackRoot
 // on the current thread and setting the specified AsyncStackFrame as
 // the current async frame.
 FOLLY_NOINLINE void resumeCoroutineWithNewAsyncStackRoot(
-    std::experimental::coroutine_handle<> h,
-    AsyncStackFrame& frame) noexcept;
+    coro::coroutine_handle<> h, AsyncStackFrame& frame) noexcept;
 
 // Resume the specified coroutine after installing a new AsyncStackRoot
 // on the current thread and setting the coroutine's associated
@@ -270,7 +276,7 @@ FOLLY_NOINLINE void resumeCoroutineWithNewAsyncStackRoot(
 // current async frame.
 template <typename Promise>
 void resumeCoroutineWithNewAsyncStackRoot(
-    std::experimental::coroutine_handle<Promise> h) noexcept;
+    coro::coroutine_handle<Promise> h) noexcept;
 
 #endif // FOLLY_HAS_COROUTINES
 
@@ -313,12 +319,10 @@ struct AsyncStackFrame {
 
   friend AsyncStackFrame& getDetachedRootAsyncStackFrame() noexcept;
   friend void activateAsyncStackFrame(
-      folly::AsyncStackRoot&,
-      folly::AsyncStackFrame&) noexcept;
+      folly::AsyncStackRoot&, folly::AsyncStackFrame&) noexcept;
   friend void deactivateAsyncStackFrame(folly::AsyncStackFrame&) noexcept;
   friend void pushAsyncStackFrameCallerCallee(
-      folly::AsyncStackFrame&,
-      folly::AsyncStackFrame&) noexcept;
+      folly::AsyncStackFrame&, folly::AsyncStackFrame&) noexcept;
   friend void checkAsyncStackFrameIsActive(
       const folly::AsyncStackFrame&) noexcept;
   friend void popAsyncStackFrameCallee(folly::AsyncStackFrame&) noexcept;
@@ -384,7 +388,7 @@ struct AsyncStackRoot {
   // The current stack root must not currently have any active
   // frame.
   void setTopFrame(AsyncStackFrame& frame) noexcept;
-  AsyncStackFrame* getTopFrame() noexcept;
+  AsyncStackFrame* getTopFrame() const noexcept;
 
   // Initialises this stack root with information about the context
   // in which the stack-root was declared. This records information
@@ -402,12 +406,10 @@ struct AsyncStackRoot {
  private:
   friend class detail::ScopedAsyncStackRoot;
   friend void activateAsyncStackFrame(
-      folly::AsyncStackRoot&,
-      folly::AsyncStackFrame&) noexcept;
+      folly::AsyncStackRoot&, folly::AsyncStackFrame&) noexcept;
   friend void deactivateAsyncStackFrame(folly::AsyncStackFrame&) noexcept;
   friend void pushAsyncStackFrameCallerCallee(
-      folly::AsyncStackFrame&,
-      folly::AsyncStackFrame&) noexcept;
+      folly::AsyncStackFrame&, folly::AsyncStackFrame&) noexcept;
   friend void checkAsyncStackFrameIsActive(
       const folly::AsyncStackFrame&) noexcept;
   friend void popAsyncStackFrameCallee(folly::AsyncStackFrame&) noexcept;

@@ -35,6 +35,7 @@
 
 #include <folly/Executor.h>
 #include <folly/Function.h>
+#include <folly/Memory.h>
 #include <folly/Portability.h>
 #include <folly/ScopeGuard.h>
 #include <folly/Synchronized.h>
@@ -623,8 +624,7 @@ class EventBase : public TimeoutManager,
    */
   template <typename T>
   void runImmediatelyOrRunInEventBaseThreadAndWait(
-      void (*fn)(T*),
-      T* arg) noexcept;
+      void (*fn)(T*), T* arg) noexcept;
 
   /*
    * Like runInEventBaseThreadAndWait, except if the caller is already in the
@@ -663,7 +663,10 @@ class EventBase : public TimeoutManager,
   }
 
   /**
-   * check if the event base loop is running.
+   * Check if the event base loop is running.
+   *
+   * This may only be used as a sanity check mechanism; it cannot be used to
+   * make any decisions; for that, consider waitUntilRunning().
    */
   bool isRunning() const {
     return loopThread_.load(std::memory_order_relaxed) != std::thread::id();
@@ -742,8 +745,7 @@ class EventBase : public TimeoutManager,
     void reset(double value = 0.0);
 
     void addSample(
-        std::chrono::microseconds total,
-        std::chrono::microseconds busy);
+        std::chrono::microseconds total, std::chrono::microseconds busy);
 
     double get() const {
       // Add the outstanding buffered times linearly, to avoid
@@ -810,13 +812,12 @@ class EventBase : public TimeoutManager,
 
   // TimeoutManager
   void attachTimeoutManager(
-      AsyncTimeout* obj,
-      TimeoutManager::InternalEnum internal) final;
+      AsyncTimeout* obj, TimeoutManager::InternalEnum internal) final;
 
   void detachTimeoutManager(AsyncTimeout* obj) final;
 
-  bool scheduleTimeout(AsyncTimeout* obj, TimeoutManager::timeout_type timeout)
-      final;
+  bool scheduleTimeout(
+      AsyncTimeout* obj, TimeoutManager::timeout_type timeout) final;
 
   void cancelTimeout(AsyncTimeout* obj) final;
 
@@ -871,6 +872,8 @@ class EventBase : public TimeoutManager,
   typedef LoopCallback::List LoopCallbackList;
 
   bool loopBody(int flags = 0, bool ignoreKeepAlive = false);
+
+  void runLoopCallbacks(LoopCallbackList& currentCallbacks);
 
   // executes any callbacks queued by runInLoop(); returns false if none found
   bool runLoopCallbacks();
@@ -951,7 +954,7 @@ class EventBase : public TimeoutManager,
   friend class detail::EventBaseLocalBase;
   template <typename T>
   friend class EventBaseLocal;
-  std::unordered_map<std::size_t, std::shared_ptr<void>> localStorage_;
+  std::unordered_map<std::size_t, erased_unique_ptr> localStorage_;
   std::unordered_set<detail::EventBaseLocalBaseBase*> localStorageToDtor_;
 
   folly::once_flag virtualEventBaseInitFlag_;
@@ -968,8 +971,7 @@ void EventBase::runInEventBaseThread(void (*fn)(T*), T* arg) noexcept {
 
 template <typename T>
 void EventBase::runInEventBaseThreadAlwaysEnqueue(
-    void (*fn)(T*),
-    T* arg) noexcept {
+    void (*fn)(T*), T* arg) noexcept {
   return runInEventBaseThreadAlwaysEnqueue([=] { fn(arg); });
 }
 
@@ -980,8 +982,7 @@ void EventBase::runInEventBaseThreadAndWait(void (*fn)(T*), T* arg) noexcept {
 
 template <typename T>
 void EventBase::runImmediatelyOrRunInEventBaseThreadAndWait(
-    void (*fn)(T*),
-    T* arg) noexcept {
+    void (*fn)(T*), T* arg) noexcept {
   return runImmediatelyOrRunInEventBaseThreadAndWait([=] { fn(arg); });
 }
 

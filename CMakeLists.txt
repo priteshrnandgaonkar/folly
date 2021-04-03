@@ -150,7 +150,6 @@ REMOVE_MATCHES_FROM_LISTS(files hfiles
   MATCHES
     "^${FOLLY_DIR}/build/"
     "^${FOLLY_DIR}/experimental/exception_tracer/"
-    "^${FOLLY_DIR}/futures/exercises/"
     "^${FOLLY_DIR}/logging/example/"
     "^${FOLLY_DIR}/(.*/)?test/"
     "^${FOLLY_DIR}/tools/"
@@ -164,7 +163,7 @@ list(REMOVE_ITEM files
   ${FOLLY_DIR}/python/executor.cpp
   ${FOLLY_DIR}/python/fibers.cpp
   ${FOLLY_DIR}/python/GILAwareManualExecutor.cpp
-  ${FOLLY_DIR}/cybld/folly/executor.cpp
+  ${FOLLY_DIR}/experimental/symbolizer/Addr2Line.cpp
 )
 list(REMOVE_ITEM hfiles
   ${FOLLY_DIR}/python/fibers.h
@@ -314,7 +313,7 @@ set(PCLMUL_FILES
   ${FOLLY_DIR}/hash/detail/Crc32CombineDetail.cpp
   ${FOLLY_DIR}/hash/detail/Crc32cDetail.cpp
 )
-CHECK_CXX_COMPILER_FLAG(-mpclmul COMPILER_HAS_M_PCLMUL)
+check_cxx_compiler_flag(-mpclmul COMPILER_HAS_M_PCLMUL)
 if (COMPILER_HAS_M_PCLMUL)
   message(
     STATUS
@@ -565,9 +564,7 @@ if (BUILD_TESTS)
       TEST access_test SOURCES AccessTest.cpp
       TEST array_test SOURCES ArrayTest.cpp
       TEST bit_iterator_test SOURCES BitIteratorTest.cpp
-      # TODO: CMake's gtest_add_tests() function currently chokes on
-      # EnumerateTest.cpp since it uses macros to define tests.
-      #TEST enumerate_test SOURCES EnumerateTest.cpp
+      TEST enumerate_test SOURCES EnumerateTest.cpp
       TEST evicting_cache_map_test SOURCES EvictingCacheMapTest.cpp
       TEST f14_fwd_test SOURCES F14FwdTest.cpp
       TEST f14_map_test SOURCES F14MapTest.cpp
@@ -780,11 +777,24 @@ if (BUILD_TESTS)
       TEST ssl_errors_test SOURCES SSLErrorsTest.cpp
 
     DIRECTORY lang/test/
-      TEST aligned_test SOURCES AlignedTest.cpp
-      TEST bits_test SOURCES BitsTest.cpp
-      TEST c_string_test SOURCES CStringTest.cpp
-      TEST cast_test SOURCES CastTest.cpp
-      TEST safe_assert_test SOURCES SafeAssertTest.cpp
+      TEST lang_aligned_test SOURCES AlignedTest.cpp
+      TEST lang_bits_test SOURCES BitsTest.cpp
+      TEST lang_byte_test SOURCES ByteTest.cpp
+      TEST lang_c_string_test SOURCES CStringTest.cpp
+      TEST lang_cast_test SOURCES CastTest.cpp
+      TEST lang_checked_math_test SOURCES CheckedMathTest.cpp
+      TEST lang_exception_test SOURCES ExceptionTest.cpp
+      TEST lang_extern_test SOURCES ExternTest.cpp
+      TEST lang_launder_test SOURCES LaunderTest.cpp
+      TEST lang_ordering_test SOURCES OrderingTest.cpp
+      TEST lang_pretty_test SOURCES PrettyTest.cpp
+      TEST lang_propagate_const_test SOURCES PropagateConstTest.cpp
+      TEST lang_r_value_reference_wrapper_test
+        SOURCES RValueReferenceWrapperTest.cpp
+      TEST lang_safe_assert_test SOURCES SafeAssertTest.cpp
+      TEST lang_to_ascii_test SOURCES ToAsciiTest.cpp
+      TEST lang_type_info_test SOURCES TypeInfoTest.cpp
+      TEST lang_uncaught_exceptions_test SOURCES UncaughtExceptionsTest.cpp
 
     DIRECTORY memory/test/
       TEST arena_test SOURCES ArenaTest.cpp
@@ -800,6 +810,7 @@ if (BUILD_TESTS)
 
     DIRECTORY portability/test/
       TEST constexpr_test SOURCES ConstexprTest.cpp
+      TEST filesystem_test SOURCES FilesystemTest.cpp
       TEST libgen-test SOURCES LibgenTest.cpp
       TEST openssl_portability_test SOURCES OpenSSLPortabilityTest.cpp
       TEST pthread_test SOURCES PThreadTest.cpp

@@ -196,13 +196,34 @@ struct ScheduledEvent {
   }
 };
 
-FOLLY_ALWAYS_INLINE void
-scheduleEvents(EventBase* eventBase, int fd, ScheduledEvent* events) {
+FOLLY_ALWAYS_INLINE void scheduleEvents(
+    EventBase* eventBase, int fd, ScheduledEvent* events) {
   for (ScheduledEvent* ev = events; ev->milliseconds > 0; ++ev) {
     eventBase->tryRunAfterDelay(
         std::bind(&ScheduledEvent::perform, ev, fd), ev->milliseconds);
   }
 }
+
+class TestObserver : public folly::ExecutionObserver {
+ public:
+  virtual void starting(uintptr_t /* id */) noexcept override {
+    if (nestedStart_ == 0) {
+      nestedStart_ = 1;
+    }
+    numStartingCalled_++;
+  }
+  virtual void stopped(uintptr_t /* id */) noexcept override {
+    nestedStart_--;
+    numStoppedCalled_++;
+  }
+  virtual void runnable(uintptr_t /* id */) noexcept override {
+    // Unused
+  }
+
+  int nestedStart_{0};
+  int numStartingCalled_{0};
+  int numStoppedCalled_{0};
+};
 
 class TestHandler : public folly::EventHandler {
  public:
@@ -1858,8 +1879,7 @@ namespace {
 class IdleTimeTimeoutSeries : public AsyncTimeout {
  public:
   explicit IdleTimeTimeoutSeries(
-      EventBase* base,
-      std::deque<std::size_t>& timeout)
+      EventBase* base, std::deque<std::size_t>& timeout)
       : AsyncTimeout(base), timeouts_(0), timeout_(timeout) {
     scheduleTimeout(1);
   }
@@ -1994,7 +2014,6 @@ TYPED_TEST_P(EventBaseTest, EventBaseThreadLoop) {
   SKIP_IF(!eventBasePtr) << "Backend not available";
   folly::EventBase& base = *eventBasePtr;
   bool ran = false;
-
   base.runInEventBaseThread([&]() { ran = true; });
   base.loop();
 
@@ -2236,15 +2255,19 @@ TYPED_TEST_P(EventBaseTest1, DrivableExecutorTest) {
   folly::EventBase& base = *eventBasePtr;
   bool finished = false;
 
+  Baton baton;
+
   std::thread t([&] {
+    baton.wait();
     /* sleep override */
-    std::this_thread::sleep_for(std::chrono::microseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
     finished = true;
     base.runInEventBaseThread([&]() { p.setValue(true); });
   });
 
   // Ensure drive does not busy wait
   base.drive(); // TODO: fix notification queue init() extra wakeup
+  baton.post();
   base.drive();
   EXPECT_TRUE(finished);
 
@@ -2403,71 +2426,27 @@ TYPED_TEST_P(EventBaseTest1, RunOnDestructionAddCallbackWithinCallback) {
   EXPECT_EQ(2, callbacksCalled);
 }
 
-REGISTER_TYPED_TEST_CASE_P(
-    EventBaseTest,
-    ReadEvent,
-    ReadPersist,
-    ReadImmediate,
-    WriteEvent,
-    WritePersist,
-    WriteImmediate,
-    ReadWrite,
-    WriteRead,
-    ReadWriteSimultaneous,
-    ReadWritePersist,
-    ReadPartial,
-    WritePartial,
-    DestroyingHandler,
-    RunAfterDelay,
-    RunAfterDelayDestruction,
-    BasicTimeouts,
-    ReuseTimeout,
-    RescheduleTimeout,
-    CancelTimeout,
-    DestroyingTimeout,
-    ScheduledFn,
-    ScheduledFnAt,
-    RunInThread,
-    RunInEventBaseThreadAndWait,
-    RunImmediatelyOrRunInEventBaseThreadAndWaitCross,
-    RunImmediatelyOrRunInEventBaseThreadAndWaitWithin,
-    RunImmediatelyOrRunInEventBaseThreadNotLooping,
-    RepeatedRunInLoop,
-    RunInLoopNoTimeMeasurement,
-    RunInLoopStopLoop,
-    messageAvailableException,
-    TryRunningAfterTerminate,
-    CancelRunInLoop,
-    LoopTermination,
-    CallbackOrderTest,
-    AlwaysEnqueueCallbackOrderTest,
-    IdleTime,
-    ThisLoop,
-    EventBaseThreadLoop,
-    EventBaseThreadName,
-    RunBeforeLoop,
-    RunBeforeLoopWait,
-    StopBeforeLoop,
-    RunCallbacksOnDestruction,
-    LoopKeepAlive,
-    LoopKeepAliveInLoop,
-    LoopKeepAliveWithLoopForever,
-    LoopKeepAliveShutdown,
-    LoopKeepAliveAtomic,
-    LoopKeepAliveCast);
+TYPED_TEST_P(EventBaseTest1, EventBaseExecutionObserver) {
+  auto eventBasePtr = getEventBase<TypeParam>();
+  SKIP_IF(!eventBasePtr) << "Backend not available";
+  folly::EventBase& base = *eventBasePtr;
+  bool ranBeforeLoop = false;
+  bool ran = false;
+  TestObserver observer;
+  base.setExecutionObserver(&observer);
 
-REGISTER_TYPED_TEST_CASE_P(
-    EventBaseTest1,
-    DrivableExecutorTest,
-    IOExecutorTest,
-    RequestContextTest,
-    CancelLoopCallbackRequestContextTest,
-    TestStarvation,
-    RunOnDestructionBasic,
-    RunOnDestructionCancelled,
-    RunOnDestructionAfterHandleDestroyed,
-    RunOnDestructionAddCallbackWithinCallback,
-    InternalExternalCallbackOrderTest,
-    pidCheck);
+  CountedLoopCallback cb(&base, 1, [&]() { ranBeforeLoop = true; });
+  base.runBeforeLoop(&cb);
+
+  base.runInEventBaseThread(
+      [&]() { base.runInEventBaseThread([&]() { ran = true; }); });
+  base.loop();
+
+  ASSERT_TRUE(ranBeforeLoop);
+  ASSERT_TRUE(ran);
+  ASSERT_EQ(0, observer.nestedStart_);
+  ASSERT_EQ(4, observer.numStartingCalled_);
+  ASSERT_EQ(4, observer.numStoppedCalled_);
+}
 } // namespace test
 } // namespace folly

@@ -294,11 +294,23 @@ class BistroBuilder(BuilderBase):
     ):
         env = self._compute_env(install_dirs)
         build_dir = os.path.join(self.src_dir, "bistro", "bistro", "cmake", "Release")
-        self._run_cmd(
-            ["ctest", build_dir],
-            cwd=build_dir,
-            env=env,
-        )
+        NUM_RETRIES = 5
+        for i in range(NUM_RETRIES):
+            cmd = ["ctest", "--output-on-failure"]
+            if i > 0:
+                cmd.append("--rerun-failed")
+            cmd.append(build_dir)
+            try:
+                self._run_cmd(
+                    cmd,
+                    cwd=build_dir,
+                    env=env,
+                )
+            except Exception:
+                print(f"Tests failed... retrying ({i+1}/{NUM_RETRIES})")
+            else:
+                return
+        raise Exception(f"Tests failed even after {NUM_RETRIES} retries")
 
 
 class CMakeBuilder(BuilderBase):
@@ -656,11 +668,18 @@ if __name__ == "__main__":
             for test in data["tests"]:
                 working_dir = get_property(test, "WORKING_DIRECTORY")
                 labels = []
+                machine_suffix = self.build_opts.host_type.as_tuple_string()
+                labels.append("tpx_test_config::buildsystem=getdeps")
+                labels.append("tpx_test_config::platform={}".format(machine_suffix))
+
                 if get_property(test, "DISABLED"):
                     labels.append("disabled")
                 command = test["command"]
                 if working_dir:
                     command = [cmake, "-E", "chdir", working_dir] + command
+
+                import os
+
                 tests.append(
                     {
                         "type": "custom",
@@ -668,6 +687,10 @@ if __name__ == "__main__":
                         % (self.manifest.name, test["name"], machine_suffix),
                         "command": command,
                         "labels": labels,
+                        "env": {},
+                        "required_paths": [],
+                        "contacts": [],
+                        "cwd": os.getcwd(),
                     }
                 )
             return tests
@@ -677,36 +700,51 @@ if __name__ == "__main__":
             # better signals for flaky tests.
             retry = 0
 
+        from sys import platform
+
         testpilot = path_search(env, "testpilot")
-        if testpilot and not no_testpilot:
+        tpx = path_search(env, "tpx")
+        if (tpx or testpilot) and not no_testpilot:
             buck_test_info = list_tests()
+            import os
+
             buck_test_info_name = os.path.join(self.build_dir, ".buck-test-info.json")
             with open(buck_test_info_name, "w") as f:
                 json.dump(buck_test_info, f)
 
             env.set("http_proxy", "")
             env.set("https_proxy", "")
-            machine_suffix = self.build_opts.host_type.as_tuple_string()
-
             runs = []
+            from sys import platform
 
-            testpilot_args = [
-                testpilot,
-                # Need to force the repo type otherwise testpilot on windows
-                # can be confused (presumably sparse profile related)
-                "--force-repo",
-                "fbcode",
-                "--force-repo-root",
-                self.build_opts.fbsource_dir,
-                "--buck-test-info",
-                buck_test_info_name,
-                "--retry=%d" % retry,
-                "-j=%s" % str(self.build_opts.num_jobs),
-                "--test-config",
-                "platform=%s" % machine_suffix,
-                "buildsystem=getdeps",
-                "--print-long-results",
-            ]
+            if platform == "win32":
+                machine_suffix = self.build_opts.host_type.as_tuple_string()
+                testpilot_args = [
+                    testpilot,
+                    # Need to force the repo type otherwise testpilot on windows
+                    # can be confused (presumably sparse profile related)
+                    "--force-repo",
+                    "fbcode",
+                    "--force-repo-root",
+                    self.build_opts.fbsource_dir,
+                    "--buck-test-info",
+                    buck_test_info_name,
+                    "--retry=%d" % retry,
+                    "-j=%s" % str(self.build_opts.num_jobs),
+                    "--test-config",
+                    "platform=%s" % machine_suffix,
+                    "buildsystem=getdeps",
+                    "--print-long-results",
+                ]
+            else:
+                testpilot_args = [
+                    tpx,
+                    "--buck-test-info",
+                    buck_test_info_name,
+                    "--retry=%d" % retry,
+                    "-j=%s" % str(self.build_opts.num_jobs),
+                    "--print-long-results",
+                ]
 
             if owner:
                 testpilot_args += ["--contacts", owner]

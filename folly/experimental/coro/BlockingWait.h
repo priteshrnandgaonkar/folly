@@ -18,6 +18,7 @@
 
 #include <folly/Try.h>
 #include <folly/executors/ManualExecutor.h>
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/Task.h>
 #include <folly/experimental/coro/Traits.h>
 #include <folly/experimental/coro/ViaIfAsync.h>
@@ -30,9 +31,10 @@
 
 #include <cassert>
 #include <exception>
-#include <experimental/coroutine>
 #include <type_traits>
 #include <utility>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -46,8 +48,7 @@ class BlockingWaitPromiseBase {
   struct FinalAwaiter {
     bool await_ready() noexcept { return false; }
     template <typename Promise>
-    void await_suspend(
-        std::experimental::coroutine_handle<Promise> coro) noexcept {
+    void await_suspend(coroutine_handle<Promise> coro) noexcept {
       BlockingWaitPromiseBase& promise = coro.promise();
       folly::deactivateAsyncStackFrame(promise.getAsyncFrame());
       promise.baton_.post();
@@ -66,7 +67,7 @@ class BlockingWaitPromiseBase {
     ::folly_coro_async_free(ptr, size);
   }
 
-  std::experimental::suspend_always initial_suspend() { return {}; }
+  suspend_always initial_suspend() { return {}; }
 
   FinalAwaiter final_suspend() noexcept { return {}; }
 
@@ -101,7 +102,7 @@ class BlockingWaitPromise final : public BlockingWaitPromiseBase {
   }
 
   template <
-      typename U,
+      typename U = T,
       std::enable_if_t<std::is_convertible<U, T>::value, int> = 0>
   void return_value(U&& value) noexcept(
       std::is_nothrow_constructible<T, U&&>::value) {
@@ -184,7 +185,7 @@ template <typename T>
 class BlockingWaitTask {
  public:
   using promise_type = BlockingWaitPromise<T>;
-  using handle_t = std::experimental::coroutine_handle<promise_type>;
+  using handle_t = coroutine_handle<promise_type>;
 
   explicit BlockingWaitTask(handle_t coro) noexcept : coro_(coro) {}
 
@@ -245,21 +246,20 @@ template <typename T>
 inline BlockingWaitTask<T>
 BlockingWaitPromise<T>::get_return_object() noexcept {
   return BlockingWaitTask<T>{
-      std::experimental::coroutine_handle<BlockingWaitPromise<T>>::from_promise(
-          *this)};
+      coroutine_handle<BlockingWaitPromise<T>>::from_promise(*this)};
 }
 
 template <typename T>
 inline BlockingWaitTask<T&>
 BlockingWaitPromise<T&>::get_return_object() noexcept {
-  return BlockingWaitTask<T&>{std::experimental::coroutine_handle<
-      BlockingWaitPromise<T&>>::from_promise(*this)};
+  return BlockingWaitTask<T&>{
+      coroutine_handle<BlockingWaitPromise<T&>>::from_promise(*this)};
 }
 
 inline BlockingWaitTask<void>
 BlockingWaitPromise<void>::get_return_object() noexcept {
-  return BlockingWaitTask<void>{std::experimental::coroutine_handle<
-      BlockingWaitPromise<void>>::from_promise(*this)};
+  return BlockingWaitTask<void>{
+      coroutine_handle<BlockingWaitPromise<void>>::from_promise(*this)};
 }
 
 template <
@@ -365,73 +365,79 @@ class BlockingWaitExecutor final : public folly::DrivableExecutor {
 
 } // namespace detail
 
-/// blockingWait(Awaitable&&) -> await_result_t<Awaitable>
+/// blocking_wait_fn
 ///
-/// This function co_awaits the passed awaitable object and blocks the current
-/// thread until the operation completes.
+/// Awaits co_awaits the passed awaitable and blocks the current thread until
+/// the await operation completes.
 ///
-/// This is useful for launching an asynchronous operation from the top-level
-/// main() function or from unit-tests.
+/// Useful for launching an asynchronous operation from the top-level main()
+/// function or from unit-tests.
 ///
 /// WARNING:
 /// Avoid using this function within any code that might run on the thread
 /// of an executor as this can potentially lead to deadlock if the operation
 /// you are waiting on needs to do some work on that executor in order to
 /// complete.
-template <typename Awaitable>
-auto blockingWait(Awaitable&& awaitable)
-    -> detail::decay_rvalue_reference_t<await_result_t<Awaitable>> {
-  folly::AsyncStackFrame frame;
-  frame.setReturnAddress();
+struct blocking_wait_fn {
+  template <typename Awaitable>
+  FOLLY_NOINLINE auto operator()(Awaitable&& awaitable) const
+      -> detail::decay_rvalue_reference_t<await_result_t<Awaitable>> {
+    folly::AsyncStackFrame frame;
+    frame.setReturnAddress();
 
-  folly::AsyncStackRoot stackRoot;
-  stackRoot.setNextRoot(folly::tryGetCurrentAsyncStackRoot());
-  stackRoot.setStackFrameContext();
-  stackRoot.setTopFrame(frame);
+    folly::AsyncStackRoot stackRoot;
+    stackRoot.setNextRoot(folly::tryGetCurrentAsyncStackRoot());
+    stackRoot.setStackFrameContext();
+    stackRoot.setTopFrame(frame);
 
-  return static_cast<std::add_rvalue_reference_t<await_result_t<Awaitable>>>(
-      detail::makeRefBlockingWaitTask(static_cast<Awaitable&&>(awaitable))
-          .get(frame));
-}
-
-template <typename SemiAwaitable>
-FOLLY_NOINLINE auto blockingWait(
-    SemiAwaitable&& awaitable,
-    folly::DrivableExecutor* executor)
-    -> detail::decay_rvalue_reference_t<semi_await_result_t<SemiAwaitable>> {
-  folly::AsyncStackFrame frame;
-  frame.setReturnAddress();
-
-  folly::AsyncStackRoot stackRoot;
-  stackRoot.setNextRoot(folly::tryGetCurrentAsyncStackRoot());
-  stackRoot.setStackFrameContext();
-  stackRoot.setTopFrame(frame);
-
-  return static_cast<
-      std::add_rvalue_reference_t<semi_await_result_t<SemiAwaitable>>>(
-      detail::makeRefBlockingWaitTask(
-          folly::coro::co_viaIfAsync(
-              folly::getKeepAliveToken(executor),
-              static_cast<SemiAwaitable&&>(awaitable)))
-          .getVia(executor, frame));
-}
-
-template <
-    typename SemiAwaitable,
-    std::enable_if_t<!is_awaitable_v<SemiAwaitable>, int> = 0>
-auto blockingWait(SemiAwaitable&& awaitable)
-    -> detail::decay_rvalue_reference_t<semi_await_result_t<SemiAwaitable>> {
-  std::exception_ptr eptr;
-  {
-    detail::BlockingWaitExecutor executor;
-    try {
-      return blockingWait(static_cast<SemiAwaitable&&>(awaitable), &executor);
-    } catch (...) {
-      eptr = std::current_exception();
-    }
+    return static_cast<std::add_rvalue_reference_t<await_result_t<Awaitable>>>(
+        detail::makeRefBlockingWaitTask(static_cast<Awaitable&&>(awaitable))
+            .get(frame));
   }
-  std::rethrow_exception(eptr);
-}
+
+  template <typename SemiAwaitable>
+  FOLLY_NOINLINE auto operator()(
+      SemiAwaitable&& awaitable, folly::DrivableExecutor* executor) const
+      -> detail::decay_rvalue_reference_t<semi_await_result_t<SemiAwaitable>> {
+    folly::AsyncStackFrame frame;
+    frame.setReturnAddress();
+
+    folly::AsyncStackRoot stackRoot;
+    stackRoot.setNextRoot(folly::tryGetCurrentAsyncStackRoot());
+    stackRoot.setStackFrameContext();
+    stackRoot.setTopFrame(frame);
+
+    return static_cast<
+        std::add_rvalue_reference_t<semi_await_result_t<SemiAwaitable>>>(
+        detail::makeRefBlockingWaitTask(
+            folly::coro::co_viaIfAsync(
+                folly::getKeepAliveToken(executor),
+                static_cast<SemiAwaitable&&>(awaitable)))
+            .getVia(executor, frame));
+  }
+
+  template <
+      typename SemiAwaitable,
+      std::enable_if_t<!is_awaitable_v<SemiAwaitable>, int> = 0>
+  auto operator()(SemiAwaitable&& awaitable) const
+      -> detail::decay_rvalue_reference_t<semi_await_result_t<SemiAwaitable>> {
+    std::exception_ptr eptr;
+    {
+      detail::BlockingWaitExecutor executor;
+      try {
+        return operator()(static_cast<SemiAwaitable&&>(awaitable), &executor);
+      } catch (...) {
+        eptr = std::current_exception();
+      }
+    }
+    std::rethrow_exception(eptr);
+  }
+};
+inline constexpr blocking_wait_fn blocking_wait{};
+static constexpr blocking_wait_fn const& blockingWait =
+    blocking_wait; // backcompat
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

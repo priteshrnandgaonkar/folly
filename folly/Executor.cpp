@@ -20,10 +20,22 @@
 
 #include <glog/logging.h>
 
+#include <folly/ExceptionString.h>
 #include <folly/Portability.h>
 #include <folly/lang/Exception.h>
 
 namespace folly {
+
+void Executor::invokeCatchingExnsLog(
+    char const* const prefix, std::exception const* const ex) {
+  auto const message = " threw unhandled ";
+  if (ex) {
+    LOG(ERROR) << prefix << message << exceptionStr(*ex);
+  } else {
+    auto ep = std::current_exception();
+    LOG(ERROR) << prefix << message << exceptionStr(ep);
+  }
+}
 
 void Executor::addWithPriority(Func, int8_t /* priority */) {
   throw std::runtime_error(
@@ -65,8 +77,7 @@ ExecutorBlockingGuard::ExecutorBlockingGuard(PermitTag) noexcept
 }
 
 ExecutorBlockingGuard::ExecutorBlockingGuard(
-    ForbidTag,
-    StringPiece name) noexcept
+    ForbidTag, StringPiece name) noexcept
     : list_{true, executor_blocking_list, {name}} {
   if (executor_blocking_list_enabled) {
     executor_blocking_list = &list_;

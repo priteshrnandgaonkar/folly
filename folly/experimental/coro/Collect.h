@@ -18,17 +18,22 @@
 
 #include <folly/Try.h>
 #include <folly/Unit.h>
+#include <folly/container/Access.h>
+#include <folly/experimental/coro/AsyncGenerator.h>
+#include <folly/experimental/coro/AsyncScope.h>
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/Task.h>
 #include <folly/experimental/coro/ViaIfAsync.h>
 #include <folly/experimental/coro/detail/Traits.h>
 
 #include <range/v3/view/move.hpp>
 
-#include <experimental/coroutine>
 #include <functional>
 #include <iterator>
 #include <tuple>
 #include <type_traits>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -51,7 +56,7 @@ using collect_all_try_range_component_t =
     collect_all_try_component_t<SemiAwaitable>;
 
 template <typename Range>
-using range_iterator_t = decltype(std::begin(std::declval<Range&>()));
+using range_iterator_t = decltype(access::begin(std::declval<Range&>()));
 
 template <typename Iterator>
 using iterator_reference_t = typename std::iterator_traits<Iterator>::reference;
@@ -227,6 +232,62 @@ auto collectAllTryRange(std::vector<SemiAwaitable> awaitables)
   co_return co_await collectAllTryRange(awaitables | ranges::views::move);
 }
 
+namespace detail {
+template <typename InputRange, bool IsTry>
+using async_generator_from_awaitable_range_item_t = conditional_t<
+    IsTry,
+    collect_all_try_range_component_t<range_reference_t<InputRange>>,
+    collect_all_range_component_t<range_reference_t<InputRange>>>;
+}
+
+////////////////////////////////////////////////////////////////////////////
+// makeUnorderedAsyncGeneratorFromAwaitableRange(AsyncScope&,
+// RangeOf<SemiAwaitable<T>>&&) -> AsyncGenerator<T&&>
+// makeUnorderedAsyncGeneratorFromAwaitableTryRange(AsyncScope&,
+// RangeOf<SemiAwaitable<T>>&&) -> AsyncGenerator<Try<T>&&>
+
+// Returns an AsyncGenerator that yields results of passed-in awaitables in
+// order of completion.
+// Destroying or cancelling the AsyncGenerator cancels the remaining awaitables.
+//
+// makeUnorderedAsyncGeneratorFromAwaitableRange cancels all remaining
+// awaitables when any of them fail with an exception. Any results obtained
+// before the failure are still returned via the generator, then the first
+// exception in time. makeUnorderedAsyncGeneratorFromAwaitableTryRange does not
+// cancel awaitables when one fails, and yields all results even when cancelled.
+//
+// Awaitables are attached to the passed-in AsyncScope.
+
+template <typename InputRange>
+auto makeUnorderedAsyncGeneratorFromAwaitableRange(
+    AsyncScope& scope, InputRange awaitables)
+    -> AsyncGenerator<detail::async_generator_from_awaitable_range_item_t<
+        InputRange,
+        false>&&>;
+template <typename InputRange>
+auto makeUnorderedAsyncGeneratorFromAwaitableTryRange(
+    AsyncScope& scope, InputRange awaitables)
+    -> AsyncGenerator<detail::async_generator_from_awaitable_range_item_t<
+        InputRange,
+        true>&&>;
+
+template <typename SemiAwaitable>
+auto makeUnorderedAsyncGeneratorFromAwaitableRange(
+    AsyncScope& scope, std::vector<SemiAwaitable> awaitables)
+    -> decltype(makeUnorderedAsyncGeneratorFromAwaitableRange(
+        scope, awaitables | ranges::views::move)) {
+  co_return co_await makeUnorderedAsyncGeneratorFromAwaitableRange(
+      scope, awaitables | ranges::views::move);
+}
+template <typename SemiAwaitable>
+auto makeUnorderedAsyncGeneratorFromAwaitableTryRange(
+    AsyncScope& scope, std::vector<SemiAwaitable> awaitables)
+    -> decltype(makeUnorderedAsyncGeneratorFromAwaitableTryRange(
+        scope, awaitables | ranges::views::move)) {
+  co_return co_await makeUnorderedAsyncGeneratorFromAwaitableTryRange(
+      scope, awaitables | ranges::views::move);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // collectAllWindowed(RangeOf<SemiAwaitable<T>>&&, size_t maxConcurrency)
 //   -> SemiAwaitable<std::vector<T>>
@@ -291,8 +352,7 @@ auto collectAllTryWindowed(InputRange awaitables, std::size_t maxConcurrency)
 // use of these functions with std::vector<SemiAwaitable>.
 template <typename SemiAwaitable>
 auto collectAllWindowed(
-    std::vector<SemiAwaitable> awaitables,
-    std::size_t maxConcurrency)
+    std::vector<SemiAwaitable> awaitables, std::size_t maxConcurrency)
     -> decltype(
         collectAllWindowed(awaitables | ranges::views::move, maxConcurrency)) {
   co_return co_await collectAllWindowed(
@@ -301,16 +361,16 @@ auto collectAllWindowed(
 
 template <typename SemiAwaitable>
 auto collectAllTryWindowed(
-    std::vector<SemiAwaitable> awaitables,
-    std::size_t maxConcurrency)
+    std::vector<SemiAwaitable> awaitables, std::size_t maxConcurrency)
     -> decltype(collectAllTryWindowed(
-        awaitables | ranges::views::move,
-        maxConcurrency)) {
+        awaitables | ranges::views::move, maxConcurrency)) {
   co_return co_await collectAllTryWindowed(
       awaitables | ranges::views::move, maxConcurrency);
 }
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES
 
 #include <folly/experimental/coro/Collect-inl.h>

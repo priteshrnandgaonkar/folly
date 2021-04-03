@@ -31,6 +31,7 @@
 
 #include <boost/regex.hpp>
 
+#include <folly/FileUtil.h>
 #include <folly/MapUtil.h>
 #include <folly/String.h>
 #include <folly/container/Foreach.h>
@@ -39,13 +40,21 @@
 using namespace std;
 
 DEFINE_bool(benchmark, false, "Run benchmarks.");
+
 DEFINE_bool(json, false, "Output in JSON format.");
-DEFINE_bool(json_verbose, false, "Output in verbose JSON format.");
+DEFINE_string(
+    bm_relative_to,
+    "",
+    "Print benchmark results relative to an earlier dump (via --bm_json_verbose)");
 
 DEFINE_string(
-    bm_regex,
+    bm_json_verbose,
     "",
-    "Only benchmarks whose names match this regex will be run.");
+    "File to write verbose JSON format (for BenchmarkCompare / --bm_relative_to). "
+    "NOTE: this is written independent of the above --json / --bm_relative_to.");
+
+DEFINE_string(
+    bm_regex, "", "Only benchmarks whose names match this regex will be run.");
 
 DEFINE_int64(
     bm_min_usec,
@@ -53,9 +62,7 @@ DEFINE_int64(
     "Minimum # of microseconds we'll accept for each benchmark.");
 
 DEFINE_int32(
-    bm_min_iters,
-    1,
-    "Minimum # of iterations we'll try for each benchmark.");
+    bm_min_iters, 1, "Minimum # of iterations we'll try for each benchmark.");
 
 DEFINE_int64(
     bm_max_iters,
@@ -63,9 +70,7 @@ DEFINE_int64(
     "Maximum # of iterations we'll try for each benchmark.");
 
 DEFINE_int32(
-    bm_max_secs,
-    1,
-    "Maximum # of seconds we'll spend on each benchmark.");
+    bm_max_secs, 1, "Maximum # of seconds we'll spend on each benchmark.");
 
 namespace folly {
 
@@ -106,16 +111,12 @@ size_t getGlobalBenchmarkBaselineIndex() {
 #undef FB_FOLLY_GLOBAL_BENCHMARK_BASELINE
 
 void detail::addBenchmarkImpl(
-    const char* file,
-    StringPiece name,
-    BenchmarkFun fun,
-    bool useCounter) {
+    const char* file, StringPiece name, BenchmarkFun fun, bool useCounter) {
   benchmarks().push_back({file, name.str(), std::move(fun), useCounter});
 }
 
 static std::pair<double, UserCounters> runBenchmarkGetNSPerIteration(
-    const BenchmarkFun& fun,
-    const double globalBaseline) {
+    const BenchmarkFun& fun, const double globalBaseline) {
   using std::chrono::duration_cast;
   using std::chrono::high_resolution_clock;
   using std::chrono::microseconds;
@@ -222,8 +223,8 @@ static const ScaleInfo kMetricSuffixes[]{
     {0, nullptr},
 };
 
-static string
-humanReadable(double n, unsigned int decimals, const ScaleInfo* scales) {
+static string humanReadable(
+    double n, unsigned int decimals, const ScaleInfo* scales) {
   if (std::isinf(n) || std::isnan(n)) {
     return folly::to<string>(n);
   }
@@ -365,28 +366,8 @@ static void printBenchmarkResultsAsJson(
   printf("%s\n", toPrettyJson(d).c_str());
 }
 
-static void printBenchmarkResultsAsVerboseJson(
-    const vector<detail::BenchmarkResult>& data) {
-  dynamic d;
-  benchmarkResultsToDynamic(data, d);
-  printf("%s\n", toPrettyJson(d).c_str());
-}
-
-static void printBenchmarkResults(const vector<detail::BenchmarkResult>& data) {
-  if (FLAGS_json_verbose) {
-    printBenchmarkResultsAsVerboseJson(data);
-    return;
-  } else if (FLAGS_json) {
-    printBenchmarkResultsAsJson(data);
-    return;
-  }
-
-  CHECK(FLAGS_json_verbose || FLAGS_json) << "Cannot print benchmark results";
-}
-
 void benchmarkResultsToDynamic(
-    const vector<detail::BenchmarkResult>& data,
-    dynamic& out) {
+    const vector<detail::BenchmarkResult>& data, dynamic& out) {
   out = dynamic::array;
   for (auto& datum : data) {
     if (!datum.counters.empty()) {
@@ -406,8 +387,7 @@ void benchmarkResultsToDynamic(
 }
 
 void benchmarkResultsFromDynamic(
-    const dynamic& d,
-    vector<detail::BenchmarkResult>& results) {
+    const dynamic& d, vector<detail::BenchmarkResult>& results) {
   for (auto& datum : d) {
     results.push_back(
         {datum[0].asString(),
@@ -560,6 +540,25 @@ runBenchmarksWithPrinter(BenchmarkResultsPrinter* FOLLY_NULLABLE printer) {
   return std::make_pair(std::move(counterNames), std::move(results));
 }
 
+std::vector<detail::BenchmarkResult> resultsFromFile(
+    const std::string& filename) {
+  std::string content;
+  readFile(filename.c_str(), content);
+  std::vector<detail::BenchmarkResult> ret;
+  if (!content.empty()) {
+    benchmarkResultsFromDynamic(parseJson(content), ret);
+  }
+  return ret;
+}
+
+bool writeResultsToFile(
+    const std::vector<detail::BenchmarkResult>& results,
+    const std::string& filename) {
+  dynamic d;
+  benchmarkResultsToDynamic(results, d);
+  return writeFile(toPrettyJson(d), filename.c_str());
+}
+
 } // namespace
 
 namespace detail {
@@ -583,16 +582,24 @@ void runBenchmarks() {
   // PLEASE KEEP QUIET. MEASUREMENTS IN PROGRESS.
 
   auto benchmarkResults = runBenchmarksWithPrinter(
-      !FLAGS_json_verbose && !FLAGS_json && !useCounter ? &printer : nullptr);
+      FLAGS_bm_relative_to.empty() && !FLAGS_json && !useCounter ? &printer
+                                                                 : nullptr);
 
   // PLEASE MAKE NOISE. MEASUREMENTS DONE.
 
-  if (FLAGS_json_verbose || FLAGS_json) {
-    printBenchmarkResults(benchmarkResults.second);
+  if (FLAGS_json) {
+    printBenchmarkResultsAsJson(benchmarkResults.second);
+  } else if (!FLAGS_bm_relative_to.empty()) {
+    printResultComparison(
+        resultsFromFile(FLAGS_bm_relative_to), benchmarkResults.second);
   } else {
     printer = BenchmarkResultsPrinter{std::move(benchmarkResults.first)};
     printer.print(benchmarkResults.second);
     printer.separator('=');
+  }
+
+  if (!FLAGS_bm_json_verbose.empty()) {
+    writeResultsToFile(benchmarkResults.second, FLAGS_bm_json_verbose);
   }
 
   checkRunMode();

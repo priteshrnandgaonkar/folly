@@ -602,8 +602,7 @@ class ConstructibleWithArgsOnly {
 class ConstructibleWithInitializerListAndArgsOnly {
  public:
   ConstructibleWithInitializerListAndArgsOnly(
-      std::initializer_list<int>,
-      double) {}
+      std::initializer_list<int>, double) {}
 
   ConstructibleWithInitializerListAndArgsOnly() = delete;
   ConstructibleWithInitializerListAndArgsOnly(
@@ -825,6 +824,10 @@ TEST(Optional, StdOptionalConversions) {
   f = static_cast<folly::Optional<int>>(s);
   EXPECT_EQ(*f, 42);
   EXPECT_TRUE(s);
+
+  const folly::Optional<int> fc = 12;
+  s = static_cast<std::optional<int>>(fc);
+  EXPECT_EQ(*s, 12);
 
   folly::Optional<std::unique_ptr<int>> fp = std::make_unique<int>(42);
   std::optional<std::unique_ptr<int>> sp(std::move(fp));

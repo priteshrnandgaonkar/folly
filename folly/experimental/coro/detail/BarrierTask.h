@@ -16,13 +16,15 @@
 
 #pragma once
 
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/WithAsyncStack.h>
 #include <folly/experimental/coro/detail/Barrier.h>
 #include <folly/experimental/coro/detail/Malloc.h>
 
 #include <cassert>
-#include <experimental/coroutine>
 #include <utility>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -34,8 +36,8 @@ class BarrierTask {
     struct FinalAwaiter {
       bool await_ready() noexcept { return false; }
 
-      std::experimental::coroutine_handle<> await_suspend(
-          std::experimental::coroutine_handle<promise_type> h) noexcept {
+      coroutine_handle<> await_suspend(
+          coroutine_handle<promise_type> h) noexcept {
         auto& promise = h.promise();
         assert(promise.barrier_ != nullptr);
         return promise.barrier_->arrive(promise.asyncFrame_);
@@ -54,12 +56,10 @@ class BarrierTask {
     }
 
     BarrierTask get_return_object() noexcept {
-      return BarrierTask{
-          std::experimental::coroutine_handle<promise_type>::from_promise(
-              *this)};
+      return BarrierTask{coroutine_handle<promise_type>::from_promise(*this)};
     }
 
-    std::experimental::suspend_always initial_suspend() noexcept { return {}; }
+    suspend_always initial_suspend() noexcept { return {}; }
 
     FinalAwaiter final_suspend() noexcept { return {}; }
 
@@ -86,7 +86,7 @@ class BarrierTask {
   };
 
  private:
-  using handle_t = std::experimental::coroutine_handle<promise_type>;
+  using handle_t = coroutine_handle<promise_type>;
 
   explicit BarrierTask(handle_t coro) noexcept : coro_(coro) {}
 
@@ -112,8 +112,7 @@ class BarrierTask {
   }
 
   FOLLY_NOINLINE void start(
-      Barrier* barrier,
-      folly::AsyncStackFrame& parentFrame) noexcept {
+      Barrier* barrier, folly::AsyncStackFrame& parentFrame) noexcept {
     assert(coro_);
     auto& calleeFrame = coro_.promise().getAsyncFrame();
     calleeFrame.setParentFrame(parentFrame);
@@ -137,17 +136,15 @@ class DetachedBarrierTask {
 
     DetachedBarrierTask get_return_object() noexcept {
       return DetachedBarrierTask{
-          std::experimental::coroutine_handle<promise_type>::from_promise(
-              *this)};
+          coroutine_handle<promise_type>::from_promise(*this)};
     }
 
-    std::experimental::suspend_always initial_suspend() noexcept { return {}; }
+    suspend_always initial_suspend() noexcept { return {}; }
 
     auto final_suspend() noexcept {
       struct awaiter {
         bool await_ready() noexcept { return false; }
-        auto await_suspend(
-            std::experimental::coroutine_handle<promise_type> h) noexcept {
+        auto await_suspend(coroutine_handle<promise_type> h) noexcept {
           assert(h.promise().barrier_ != nullptr);
           auto continuation =
               h.promise().barrier_->arrive(h.promise().getAsyncFrame());
@@ -179,7 +176,7 @@ class DetachedBarrierTask {
   };
 
  private:
-  using handle_t = std::experimental::coroutine_handle<promise_type>;
+  using handle_t = coroutine_handle<promise_type>;
 
   explicit DetachedBarrierTask(handle_t coro) : coro_(coro) {}
 
@@ -198,8 +195,7 @@ class DetachedBarrierTask {
   }
 
   FOLLY_NOINLINE void start(
-      Barrier* barrier,
-      folly::AsyncStackFrame& parentFrame) && noexcept {
+      Barrier* barrier, folly::AsyncStackFrame& parentFrame) && noexcept {
     assert(coro_);
     coro_.promise().getAsyncFrame().setParentFrame(parentFrame);
     std::move(*this).start(barrier, FOLLY_ASYNC_STACK_RETURN_ADDRESS());
@@ -222,3 +218,5 @@ class DetachedBarrierTask {
 } // namespace detail
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

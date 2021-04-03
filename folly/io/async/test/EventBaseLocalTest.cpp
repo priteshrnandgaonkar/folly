@@ -16,6 +16,7 @@
 
 #include <folly/io/async/EventBaseLocal.h>
 
+#include <folly/io/async/EventBaseAtomicNotificationQueue.h>
 #include <folly/portability/GTest.h>
 
 struct Foo {
@@ -36,18 +37,18 @@ TEST(EventBaseLocalTest, Basic) {
 
     EXPECT_EQ(foo.get(evb1), nullptr);
 
-    foo.emplace(evb1, new Foo(5, [&]() { ++dtorCnt; }));
+    foo.emplace(evb1, 5, [&] { ++dtorCnt; });
 
     EXPECT_EQ(foo.get(evb1)->n, 5);
 
     {
       folly::EventBase evb2;
-      foo.emplace(evb2, new Foo(6, [&]() { ++dtorCnt; }));
+      foo.emplace(evb2, 6, [&] { ++dtorCnt; });
       EXPECT_EQ(foo.get(evb2)->n, 6);
       foo.erase(evb2);
       EXPECT_EQ(dtorCnt, 1); // should dtor a Foo when we erase
       EXPECT_EQ(foo.get(evb2), nullptr);
-      foo.emplace(evb2, 7, [&]() { ++dtorCnt; });
+      foo.emplace(evb2, 7, [&] { ++dtorCnt; });
       EXPECT_EQ(foo.get(evb2)->n, 7);
     }
 
@@ -58,17 +59,17 @@ TEST(EventBaseLocalTest, Basic) {
   EXPECT_EQ(dtorCnt, 3); // Foo will be destroyed in EventBase loop
 }
 
-TEST(EventBaseLocalTest, getOrCreate) {
+TEST(EventBaseLocalTest, try_emplace) {
   folly::EventBase evb1;
   folly::EventBaseLocal<int> ints;
 
-  EXPECT_EQ(ints.getOrCreate(evb1), 0);
-  EXPECT_EQ(ints.getOrCreate(evb1, 5), 0);
+  EXPECT_EQ(ints.try_emplace(evb1), 0);
+  EXPECT_EQ(ints.try_emplace(evb1, 5), 0);
 
   folly::EventBase evb2;
-  EXPECT_EQ(ints.getOrCreate(evb2, 5), 5);
+  EXPECT_EQ(ints.try_emplace(evb2, 5), 5);
   ints.erase(evb2);
-  EXPECT_EQ(4, ints.getOrCreateFn(evb2, []() { return new int(4); }));
+  EXPECT_EQ(4, ints.try_emplace_with(evb2, [] { return 4; }));
 }
 
 using IntPtr = std::unique_ptr<int>;
@@ -77,11 +78,11 @@ TEST(EventBaseLocalTest, getOrCreateNoncopyable) {
   folly::EventBase evb1;
   folly::EventBaseLocal<IntPtr> ints;
 
-  EXPECT_EQ(ints.getOrCreate(evb1), IntPtr());
-  EXPECT_EQ(ints.getOrCreate(evb1, std::make_unique<int>(5)), IntPtr());
+  EXPECT_EQ(ints.try_emplace(evb1), IntPtr());
+  EXPECT_EQ(ints.try_emplace(evb1, std::make_unique<int>(5)), IntPtr());
 
   folly::EventBase evb2;
-  EXPECT_EQ(*ints.getOrCreate(evb2, std::make_unique<int>(5)), 5);
+  EXPECT_EQ(*ints.try_emplace(evb2, std::make_unique<int>(5)), 5);
 }
 
 TEST(EventBaseLocalTest, emplaceNoncopyable) {
@@ -89,4 +90,25 @@ TEST(EventBaseLocalTest, emplaceNoncopyable) {
   folly::EventBaseLocal<IntPtr> ints;
   ints.emplace(evb, std::make_unique<int>(42));
   EXPECT_EQ(42, **ints.get(evb));
+}
+
+TEST(EventBaseLocalTest, DestructionOrder) {
+  struct Consumer {
+    void operator()(int) noexcept {}
+  };
+  using Queue = folly::EventBaseAtomicNotificationQueue<int, Consumer>;
+  folly::EventBaseLocal<std::unique_ptr<Queue>> ebl;
+  {
+    // Since queue binds to the underlying event loop, we must ensure
+    // local storage is cleared before event loop is destroyed.
+    folly::EventBase evb;
+    ebl.emplace_with(
+           evb,
+           [&evb] {
+             auto q = std::make_unique<Queue>();
+             q->startConsumingInternal(&evb);
+             return q;
+           })
+        .get();
+  }
 }

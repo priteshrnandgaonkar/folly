@@ -96,8 +96,7 @@ class CursorBase {
 
   template <class OtherDerived, class OtherBuf>
   explicit CursorBase(
-      const CursorBase<OtherDerived, OtherBuf>& cursor,
-      size_t len)
+      const CursorBase<OtherDerived, OtherBuf>& cursor, size_t len)
       : crtBuf_(cursor.crtBuf_),
         buffer_(cursor.buffer_),
         crtBegin_(cursor.crtBegin_),
@@ -898,6 +897,9 @@ class RWCursor : public detail::CursorBase<RWCursor<access>, IOBuf>,
   explicit RWCursor(IOBuf* buf)
       : detail::CursorBase<RWCursor<access>, IOBuf>(buf), maybeShared_(true) {}
 
+  explicit RWCursor(IOBufQueue& queue)
+      : RWCursor((queue.flushCache(), queue.head_.get())) {}
+
   template <class OtherDerived, class OtherBuf>
   explicit RWCursor(const detail::CursorBase<OtherDerived, OtherBuf>& cursor)
       : detail::CursorBase<RWCursor<access>, IOBuf>(cursor),
@@ -1239,6 +1241,11 @@ class QueueAppender : public detail::Writable<QueueAppender> {
 
   void insert(const folly::IOBuf& buf) {
     queueCache_.queue()->append(buf, true);
+  }
+
+  template <CursorAccess access>
+  explicit operator RWCursor<access>() {
+    return RWCursor<access>(*queueCache_.queue());
   }
 
  private:

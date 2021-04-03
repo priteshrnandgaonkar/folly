@@ -77,8 +77,7 @@ std::unique_ptr<TAsync> getAIO(size_t capacity, AsyncBase::PollMode pollMode) {
 
 template <typename TAsync>
 void testReadsSerially(
-    const std::vector<TestSpec>& specs,
-    folly::AsyncBase::PollMode pollMode) {
+    const std::vector<TestSpec>& specs, folly::AsyncBase::PollMode pollMode) {
   auto aioReader = getAIO<TAsync>(1, pollMode);
   SKIP_IF(!aioReader) << "TAsync not available";
 
@@ -156,7 +155,6 @@ void testReadsParallel(
     auto completed =
         test::async_base_test_lib_detail::TestUtil::readerWait(aioReader.get());
     size_t nrRead = completed.size();
-    EXPECT_NE(nrRead, 0);
     remaining -= nrRead;
 
     for (size_t i = 0; i < nrRead; i++) {
@@ -182,8 +180,7 @@ void testReadsParallel(
 
 template <typename TAsync>
 void testReadsQueued(
-    const std::vector<TestSpec>& specs,
-    folly::AsyncBase::PollMode pollMode) {
+    const std::vector<TestSpec>& specs, folly::AsyncBase::PollMode pollMode) {
   size_t readerCapacity = std::max(specs.size() / 2, size_t(1));
   auto aioReader = getAIO<TAsync>(readerCapacity, pollMode);
   SKIP_IF(!aioReader) << "TAsync not available";
@@ -217,7 +214,6 @@ void testReadsQueued(
     auto completed =
         test::async_base_test_lib_detail::TestUtil::readerWait(aioReader.get());
     size_t nrRead = completed.size();
-    EXPECT_NE(nrRead, 0);
     remaining -= nrRead;
 
     for (size_t i = 0; i < nrRead; i++) {
@@ -243,8 +239,7 @@ void testReadsQueued(
 
 template <typename TAsync>
 void testReads(
-    const std::vector<TestSpec>& specs,
-    folly::AsyncBase::PollMode pollMode) {
+    const std::vector<TestSpec>& specs, folly::AsyncBase::PollMode pollMode) {
   testReadsSerially<TAsync>(specs, pollMode);
   testReadsParallel<TAsync>(specs, pollMode, false);
   testReadsParallel<TAsync>(specs, pollMode, true);
@@ -475,19 +470,6 @@ TYPED_TEST_P(AsyncTest, Cancel) {
   EXPECT_EQ(foundCompleted, completed);
 }
 
-REGISTER_TYPED_TEST_CASE_P(
-    AsyncTest,
-    ZeroAsyncDataNotPollable,
-    ZeroAsyncDataPollable,
-    SingleAsyncDataNotPollable,
-    SingleAsyncDataPollable,
-    MultipleAsyncDataNotPollable,
-    MultipleAsyncDataPollable,
-    ManyAsyncDataNotPollable,
-    ManyAsyncDataPollable,
-    NonBlockingWait,
-    Cancel);
-
 // batch tests
 template <typename T>
 class AsyncBatchTest : public ::testing::Test {};
@@ -529,7 +511,6 @@ TYPED_TEST_P(AsyncBatchTest, BatchRead) {
   CHECK_EQ(completed, kBatchNumEntries);
 }
 
-REGISTER_TYPED_TEST_CASE_P(AsyncBatchTest, BatchRead);
 } // namespace async_base_test_lib_detail
 } // namespace test
 } // namespace folly

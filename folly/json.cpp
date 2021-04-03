@@ -55,9 +55,7 @@ parse_error make_parse_error(
 
 struct Printer {
   explicit Printer(
-      std::string& out,
-      unsigned* indentLevel,
-      serialization_opts const* opts)
+      std::string& out, unsigned* indentLevel, serialization_opts const* opts)
       : out_(out), indentLevel_(indentLevel), opts_(*opts) {}
 
   void operator()(dynamic const& v) const {
@@ -191,7 +189,8 @@ struct Printer {
 
   void newline() const {
     if (indentLevel_) {
-      out_ += to<std::string>('\n', std::string(*indentLevel_ * 2, ' '));
+      auto indent = *indentLevel_ * opts_.pretty_formatting_indent_width;
+      out_ += to<std::string>('\n', std::string(indent, ' '));
     }
   }
 
@@ -357,10 +356,7 @@ dynamic parseNumber(Input& in);
 
 template <class K>
 void parseObjectKeyValue(
-    Input& in,
-    dynamic& ret,
-    K&& key,
-    json::metadata_map* map) {
+    Input& in, dynamic& ret, K&& key, json::metadata_map* map) {
   auto keyLineNumber = in.getLineNum();
   in.skipWhitespace();
   in.expect(':');
@@ -723,9 +719,7 @@ size_t firstEscapableInWord(T s, const serialization_opts& opts) {
 // Escape a string so that it is legal to print it in JSON text.
 template <bool EnableExtraAsciiEscapes>
 void escapeStringImpl(
-    StringPiece input,
-    std::string& out,
-    const serialization_opts& opts) {
+    StringPiece input, std::string& out, const serialization_opts& opts) {
   auto hexDigit = [](uint8_t c) -> char {
     return c < 10 ? c + '0' : c - 10 + 'a';
   };
@@ -859,9 +853,7 @@ void escapeStringImpl(
 }
 
 void escapeString(
-    StringPiece input,
-    std::string& out,
-    const serialization_opts& opts) {
+    StringPiece input, std::string& out, const serialization_opts& opts) {
   if (FOLLY_UNLIKELY(
           opts.extra_ascii_to_escape_bitmap[0] ||
           opts.extra_ascii_to_escape_bitmap[1])) {

@@ -102,15 +102,13 @@ TEST(to_weak_ptr, example) {
 // These are here to make it easy to double-check the assembly
 // for to_weak_ptr_aliasing
 extern "C" FOLLY_KEEP void check_to_weak_ptr_aliasing(
-    std::shared_ptr<void> const& s,
-    void* a) {
+    std::shared_ptr<void> const& s, void* a) {
   auto w = folly::to_weak_ptr_aliasing(s, a);
   asm_volatile_memory();
   asm_volatile_pause();
 }
 extern "C" FOLLY_KEEP void check_to_weak_ptr_aliasing_fallback(
-    std::shared_ptr<void> const& s,
-    void* a) {
+    std::shared_ptr<void> const& s, void* a) {
   auto w = folly::to_weak_ptr(std::shared_ptr<void>(s, a));
   asm_volatile_memory();
   asm_volatile_pause();
@@ -174,6 +172,31 @@ TEST(copy_to_unique_ptr, example) {
 TEST(copy_to_shared_ptr, example) {
   std::shared_ptr<int> s = copy_to_shared_ptr(17);
   EXPECT_EQ(17, *s);
+}
+
+TEST(to_erased_unique_ptr, example) {
+  erased_unique_ptr ptr = empty_erased_unique_ptr();
+
+  ptr = to_erased_unique_ptr(new int(42));
+  EXPECT_EQ(42, *static_cast<int*>(ptr.get()));
+
+  ptr = to_erased_unique_ptr(new std::string("foo"));
+  EXPECT_EQ("foo", *static_cast<std::string*>(ptr.get()));
+
+  struct {
+    int i;
+  } s;
+  ptr = to_erased_unique_ptr(new decltype(s){42});
+  EXPECT_EQ(42, static_cast<decltype(s)*>(ptr.get())->i);
+
+  ptr = to_erased_unique_ptr(std::make_unique<int>(42));
+  EXPECT_EQ(42, *static_cast<int*>(ptr.get()));
+
+  ptr = make_erased_unique<std::string>(7, 'a');
+  EXPECT_EQ("aaaaaaa", *static_cast<std::string*>(ptr.get()));
+
+  ptr = copy_to_erased_unique_ptr(std::string("bbbbbbb"));
+  EXPECT_EQ("bbbbbbb", *static_cast<std::string*>(ptr.get()));
 }
 
 TEST(SysAllocator, equality) {

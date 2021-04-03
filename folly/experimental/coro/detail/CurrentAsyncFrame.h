@@ -24,10 +24,11 @@
 #pragma once
 
 #include <folly/Executor.h>
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/WithAsyncStack.h>
 #include <folly/tracing/AsyncStack.h>
 
-#include <experimental/coroutine>
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -40,8 +41,7 @@ class CurrentAsyncStackFrameAwaitable {
     bool await_ready() noexcept { return false; }
 
     template <typename Promise>
-    bool await_suspend(
-        std::experimental::coroutine_handle<Promise> h) noexcept {
+    bool await_suspend(coroutine_handle<Promise> h) noexcept {
       asyncFrame_ = &h.promise().getAsyncFrame();
       return false;
     }
@@ -59,8 +59,7 @@ class CurrentAsyncStackFrameAwaitable {
   }
 
   friend Awaiter tag_invoke(
-      cpo_t<co_withAsyncStack>,
-      CurrentAsyncStackFrameAwaitable) noexcept {
+      cpo_t<co_withAsyncStack>, CurrentAsyncStackFrameAwaitable) noexcept {
     return Awaiter{};
   }
 };
@@ -73,3 +72,5 @@ inline constexpr CurrentAsyncStackFrameAwaitable co_current_async_stack_frame{};
 } // namespace detail
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

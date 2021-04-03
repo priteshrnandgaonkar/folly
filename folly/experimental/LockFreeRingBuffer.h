@@ -21,6 +21,7 @@
 #include <cstring>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 #include <folly/Portability.h>
 #include <folly/Traits.h>
@@ -156,6 +157,17 @@ class LockFreeRingBuffer {
     backStep = std::min(ticket, backStep);
 
     return Cursor(ticket - backStep);
+  }
+
+  /// Returns the address and length of the internal buffer.
+  /// Unsafe to inspect this region at runtime. And not useful.
+  /// Useful when using LockFreeRingBuffer to store data which must be retrieved
+  /// from a core dump after a crash if the given region is added to the list of
+  /// dumped memory regions.
+  std::pair<void const*, size_t> internalBufferLocation() const {
+    return std::make_pair(
+        static_cast<void const*>(slots_.get()),
+        sizeof(detail::RingBufferSlot<T, Atom>[capacity_]));
   }
 
   ~LockFreeRingBuffer() {}

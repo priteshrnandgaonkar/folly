@@ -56,8 +56,8 @@ class SSLServerAcceptCallbackBase : public AsyncServerSocket::AcceptCallback {
 
   ~SSLServerAcceptCallbackBase() override { EXPECT_EQ(STATE_SUCCEEDED, state); }
 
-  void acceptError(const std::exception& ex) noexcept override {
-    LOG(WARNING) << "SSLServerAcceptCallbackBase::acceptError " << ex.what();
+  void acceptError(folly::exception_wrapper ex) noexcept override {
+    LOG(WARNING) << "SSLServerAcceptCallbackBase::acceptError " << ex;
     state = STATE_FAILED;
   }
 
@@ -104,8 +104,7 @@ class TestSSLServer {
   // Create a TestSSLServer.
   // This immediately starts listening on the given port.
   explicit TestSSLServer(
-      SSLServerAcceptCallbackBase* acb,
-      bool enableTFO = false);
+      SSLServerAcceptCallbackBase* acb, bool enableTFO = false);
   explicit TestSSLServer(
       SSLServerAcceptCallbackBase* acb,
       std::shared_ptr<SSLContext> ctx,

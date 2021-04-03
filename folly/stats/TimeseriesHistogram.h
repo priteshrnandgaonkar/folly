@@ -250,8 +250,8 @@ class TimeseriesHistogram {
    * getPercentileEstimate(double pct, size_t level) for the explanation of the
    * estimation algorithm.
    */
-  ValueType getPercentileEstimate(double pct, TimePoint start, TimePoint end)
-      const;
+  ValueType getPercentileEstimate(
+      double pct, TimePoint start, TimePoint end) const;
 
   /*
    * Return the bucket index that the given percentile falls into (in the
@@ -264,16 +264,16 @@ class TimeseriesHistogram {
    * given historical interval).  This index can then be used to retrieve either
    * the bucket threshold, or other data from inside the bucket.
    */
-  size_t getPercentileBucketIdx(double pct, TimePoint start, TimePoint end)
-      const;
+  size_t getPercentileBucketIdx(
+      double pct, TimePoint start, TimePoint end) const;
 
   /* Get the bucket threshold for the bucket containing the given pct. */
   ValueType getPercentileBucketMin(double pct, size_t level) const {
     return getBucketMin(getPercentileBucketIdx(pct, level));
   }
   /* Get the bucket threshold for the bucket containing the given pct. */
-  ValueType getPercentileBucketMin(double pct, TimePoint start, TimePoint end)
-      const {
+  ValueType getPercentileBucketMin(
+      double pct, TimePoint start, TimePoint end) const {
     return getBucketMin(getPercentileBucketIdx(pct, start, end));
   }
 
@@ -358,14 +358,6 @@ class TimeseriesHistogram {
     TimePoint end_;
   };
 
-  /*
-   * Special logic for the case of only one unique value registered
-   * (this can happen when clients don't pick good bucket ranges or have
-   * other bugs).  It's a lot easier for clients to track down these issues
-   * if they are getting the correct value.
-   */
-  void maybeHandleSingleUniqueValue(const ValueType& value);
-
   void computeAvgData(ValueType* total, uint64_t* nsamples, size_t level) const;
   void computeAvgData(
       ValueType* total,
@@ -380,8 +372,6 @@ class TimeseriesHistogram {
       TimePoint end) const;
 
   folly::detail::HistogramBuckets<ValueType, ContainerType> buckets_;
-  bool haveNotSeenValue_;
-  bool singleUniqueValue_;
   ValueType firstValue_;
 };
 } // namespace folly

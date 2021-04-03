@@ -14,25 +14,22 @@
  * limitations under the License.
  */
 
-#pragma once
+#include <folly/portability/Filesystem.h>
 
-#include <cstddef>
+#include <folly/portability/GMock.h>
+#include <folly/portability/GTest.h>
 
-#if __has_include(<demangle.h>)
-#define FOLLY_DETAIL_HAVE_DEMANGLE_H 1
-#else
-#define FOLLY_DETAIL_HAVE_DEMANGLE_H 0
-#endif
+using namespace testing;
 
-namespace folly {
-namespace detail {
+class FilesystemTest : public Test {};
 
-extern int cplus_demangle_v3_callback_wrapper(
-    char const* mangled,
-    void (*cbref)(char const*, std::size_t, void*),
-    void* opaque);
-
-extern char* cplus_demangle_v3_wrapper(const char* mangled);
-
-} // namespace detail
-} // namespace folly
+TEST_F(FilesystemTest, lexically_normal) {
+  //  from: https://en.cppreference.com/w/cpp/filesystem/path/lexically_normal,
+  //      CC-BY-SA, GFDL
+  EXPECT_THAT(
+      folly::fs::lexically_normal("foo/./bar/..").native(),
+      Eq(folly::fs::path("foo/").make_preferred().native()));
+  EXPECT_THAT(
+      folly::fs::lexically_normal("foo/.///bar/../").native(),
+      Eq(folly::fs::path("foo/").make_preferred().native()));
+}

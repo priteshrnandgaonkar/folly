@@ -262,11 +262,9 @@ class exception_wrapper final {
         "greater than one. as_int_ below will not work!");
 
     static std::uintptr_t as_int_(
-        std::exception_ptr const& ptr,
-        std::exception const& e) noexcept;
+        std::exception_ptr const& ptr, std::exception const& e) noexcept;
     static std::uintptr_t as_int_(
-        std::exception_ptr const& ptr,
-        AnyException e) noexcept;
+        std::exception_ptr const& ptr, AnyException e) noexcept;
     bool has_exception_() const;
     std::exception const* as_exception_() const;
     std::type_info const* as_type_() const;
@@ -636,8 +634,7 @@ exception_wrapper make_exception_wrapper(As&&... as) {
  */
 template <class Ch>
 std::basic_ostream<Ch>& operator<<(
-    std::basic_ostream<Ch>& sout,
-    exception_wrapper const& ew) {
+    std::basic_ostream<Ch>& sout, exception_wrapper const& ew) {
   return sout << ew.what();
 }
 
@@ -702,9 +699,21 @@ inline exception_wrapper try_and_catch_(F&& f) {
 //!   }
 //! });
 //! \endcode
-template <typename... Exceptions, typename F>
-exception_wrapper try_and_catch(F&& fn) {
-  return detail::try_and_catch_<F, Exceptions...>(std::forward<F>(fn));
+template <typename Exn, typename... Exns, typename F>
+[[deprecated("no longer specify exception types explicitly")]] exception_wrapper
+try_and_catch(F&& fn) {
+  return detail::try_and_catch_<F, Exn, Exns...>(std::forward<F>(fn));
+}
+template <typename F>
+exception_wrapper try_and_catch(F&& fn) noexcept {
+  try {
+    static_cast<F&&>(fn)();
+    return exception_wrapper{};
+  } catch (std::exception const& ex) {
+    return exception_wrapper{std::current_exception(), ex};
+  } catch (...) {
+    return exception_wrapper{std::current_exception()};
+  }
 }
 } // namespace folly
 

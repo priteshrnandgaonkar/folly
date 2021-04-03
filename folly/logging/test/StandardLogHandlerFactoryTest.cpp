@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include <folly/test/TestUtils.h>
 #include <queue>
 #include <vector>
 
@@ -28,6 +27,7 @@
 #include <folly/logging/StandardLogHandlerFactory.h>
 #include <folly/logging/xlog.h>
 #include <folly/portability/GMock.h>
+#include <folly/test/TestUtils.h>
 
 namespace folly {
 
@@ -42,8 +42,8 @@ class TestLogFormatter : public LogFormatter {
 
 class TestLogWriter : public LogWriter {
  public:
-  void writeMessage(folly::StringPiece buffer, uint32_t /* flags */ = 0)
-      override {
+  void writeMessage(
+      folly::StringPiece buffer, uint32_t /* flags */ = 0) override {
     messages.push_back(buffer.str());
   }
 
@@ -82,8 +82,8 @@ class TestHandlerFactory : public LogHandlerFactory {
     explicit TestWriterFactory(std::shared_ptr<TestLogWriter> writer)
         : writer_(writer) {}
 
-    bool processOption(StringPiece /* name */, StringPiece /* value */)
-        override {
+    bool processOption(
+        StringPiece /* name */, StringPiece /* value */) override {
       return false;
     }
 
@@ -99,8 +99,8 @@ class TestHandlerFactory : public LogHandlerFactory {
     explicit TestFormatterFactory(std::shared_ptr<LogFormatter> formatter)
         : formatter_(formatter) {}
 
-    bool processOption(StringPiece /* name */, StringPiece /* value */)
-        override {
+    bool processOption(
+        StringPiece /* name */, StringPiece /* value */) override {
       return false;
     }
 

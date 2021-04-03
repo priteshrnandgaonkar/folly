@@ -18,11 +18,13 @@
 
 #include <cassert>
 #include <exception>
-#include <experimental/coroutine>
 #include <type_traits>
 #include <utility>
 
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/Invoke.h>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -43,9 +45,9 @@ class Generator {
 
     auto get_return_object() noexcept { return Generator<T>{*this}; }
 
-    std::experimental::suspend_always initial_suspend() noexcept { return {}; }
+    suspend_always initial_suspend() noexcept { return {}; }
 
-    std::experimental::suspend_always final_suspend() noexcept { return {}; }
+    suspend_always final_suspend() noexcept { return {}; }
 
     void unhandled_exception() noexcept {
       m_exception = std::current_exception();
@@ -53,12 +55,12 @@ class Generator {
 
     void return_void() noexcept {}
 
-    std::experimental::suspend_always yield_value(T& value) noexcept {
+    suspend_always yield_value(T& value) noexcept {
       m_value = std::addressof(value);
       return {};
     }
 
-    std::experimental::suspend_always yield_value(T&& value) noexcept {
+    suspend_always yield_value(T&& value) noexcept {
       m_value = std::addressof(value);
       return {};
     }
@@ -73,8 +75,7 @@ class Generator {
 
         bool await_ready() noexcept { return this->m_childPromise == nullptr; }
 
-        void await_suspend(
-            std::experimental::coroutine_handle<promise_type>) noexcept {}
+        void await_suspend(coroutine_handle<promise_type>) noexcept {}
 
         void await_resume() {
           if (this->m_childPromise != nullptr) {
@@ -105,11 +106,10 @@ class Generator {
     // Don't allow any use of 'co_await' inside the Generator
     // coroutine.
     template <typename U>
-    std::experimental::suspend_never await_transform(U&& value) = delete;
+    void await_transform(U&& value) = delete;
 
     void destroy() noexcept {
-      std::experimental::coroutine_handle<promise_type>::from_promise(*this)
-          .destroy();
+      coroutine_handle<promise_type>::from_promise(*this).destroy();
     }
 
     void throw_if_exception() {
@@ -119,9 +119,7 @@ class Generator {
     }
 
     bool is_complete() noexcept {
-      return std::experimental::coroutine_handle<promise_type>::from_promise(
-                 *this)
-          .done();
+      return coroutine_handle<promise_type>::from_promise(*this).done();
     }
 
     T& value() noexcept {
@@ -144,8 +142,7 @@ class Generator {
 
    private:
     void resume() noexcept {
-      std::experimental::coroutine_handle<promise_type>::from_promise(*this)
-          .resume();
+      coroutine_handle<promise_type>::from_promise(*this).resume();
     }
 
     std::add_pointer_t<T> m_value;
@@ -258,7 +255,8 @@ class Generator {
   }
 
   template <typename F, typename... A, typename F_, typename... A_>
-  friend Generator folly_co_invoke(tag_t<Generator, F, A...>, F_ f, A_... a) {
+  friend Generator tag_invoke(
+      tag_t<co_invoke_fn>, tag_t<Generator, F, A...>, F_ f, A_... a) {
     auto&& r = invoke(static_cast<F&&>(f), static_cast<A&&>(a)...);
     for (auto&& v : r) {
       co_yield std::move(v);
@@ -277,3 +275,5 @@ void swap(Generator<T>& a, Generator<T>& b) noexcept {
 }
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

@@ -27,8 +27,7 @@ inline void checkAsyncStackFrameIsActive(
 }
 
 inline void activateAsyncStackFrame(
-    folly::AsyncStackRoot& root,
-    folly::AsyncStackFrame& frame) noexcept {
+    folly::AsyncStackRoot& root, folly::AsyncStackFrame& frame) noexcept {
   assert(tryGetCurrentAsyncStackRoot() == &root);
   root.setTopFrame(frame);
 }
@@ -68,11 +67,24 @@ inline void popAsyncStackFrameCallee(
   calleeFrame.stackRoot = nullptr;
 }
 
+inline size_t getAsyncStackTraceFromInitialFrame(
+    folly::AsyncStackFrame* initialFrame,
+    std::uintptr_t* addresses,
+    size_t maxAddresses) {
+  size_t numFrames = 0;
+  for (auto* frame = initialFrame; frame != nullptr && numFrames < maxAddresses;
+       frame = frame->getParentFrame()) {
+    addresses[numFrames++] =
+        reinterpret_cast<std::uintptr_t>(frame->getReturnAddress());
+  }
+  return numFrames;
+}
+
 #if FOLLY_HAS_COROUTINES
 
 template <typename Promise>
 void resumeCoroutineWithNewAsyncStackRoot(
-    std::experimental::coroutine_handle<Promise> h) noexcept {
+    coro::coroutine_handle<Promise> h) noexcept {
   resumeCoroutineWithNewAsyncStackRoot(h, h.promise().getAsyncFrame());
 }
 
@@ -109,13 +121,12 @@ inline void AsyncStackRoot::setTopFrame(AsyncStackFrame& frame) noexcept {
   this->topFrame.store(&frame, std::memory_order_release);
 }
 
-inline AsyncStackFrame* AsyncStackRoot::getTopFrame() noexcept {
+inline AsyncStackFrame* AsyncStackRoot::getTopFrame() const noexcept {
   return topFrame.load(std::memory_order_relaxed);
 }
 
 inline void AsyncStackRoot::setStackFrameContext(
-    void* framePtr,
-    void* ip) noexcept {
+    void* framePtr, void* ip) noexcept {
   stackFramePtr = framePtr;
   returnAddress = ip;
 }

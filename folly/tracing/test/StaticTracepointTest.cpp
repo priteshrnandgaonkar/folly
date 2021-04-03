@@ -23,8 +23,6 @@
 #include <string>
 #include <vector>
 
-#include <boost/filesystem.hpp>
-
 #include <folly/Conv.h>
 #include <folly/Format.h>
 #include <folly/Random.h>
@@ -32,6 +30,7 @@
 #include <folly/Subprocess.h>
 #include <folly/experimental/symbolizer/detail/Debug.h>
 #include <folly/lang/Bits.h>
+#include <folly/portability/Filesystem.h>
 #include <folly/portability/GTest.h>
 #include <folly/portability/Unistd.h>
 #include <folly/tracing/test/StaticTracepointTestModule.h>
@@ -59,9 +58,7 @@ static void align4Bytes(size_t& pos) {
 }
 
 static int getNextZero(
-    const std::vector<uint8_t>& v,
-    const size_t curPos,
-    const size_t limit) {
+    const std::vector<uint8_t>& v, const size_t curPos, const size_t limit) {
   auto pos = std::find(v.begin() + curPos, v.begin() + limit, 0);
   if (pos == v.begin() + limit) {
     return -1;
@@ -75,8 +72,8 @@ static intptr_t getAddr(const std::vector<uint8_t>& v, size_t& pos) {
       folly::loadUnaligned<intptr_t>(v.data() + pos - kAddrWidth));
 }
 
-static std::string
-getStr(const std::vector<uint8_t>& v, size_t& pos, const size_t len) {
+static std::string getStr(
+    const std::vector<uint8_t>& v, size_t& pos, const size_t len) {
   CHECK_GE(len, 1);
   std::string res;
   res.resize(len - 1);
@@ -91,7 +88,7 @@ getStr(const std::vector<uint8_t>& v, size_t& pos, const size_t len) {
 
 static std::string getExe() {
   auto path = folly::sformat("/proc/{}/exe", getpid());
-  return boost::filesystem::read_symlink(path).string();
+  return folly::fs::read_symlink(path).string();
 }
 
 static std::string getNoteRawContent(const std::string& fileName) {
@@ -149,8 +146,7 @@ static std::vector<uint8_t> readNote(const std::string& fileName) {
 
 template <std::size_t SIZE>
 static void checkTracepointArguments(
-    const std::string& arguments,
-    std::array<int, SIZE>& expectedSize) {
+    const std::string& arguments, std::array<int, SIZE>& expectedSize) {
   std::vector<std::string> args;
   folly::split(' ', arguments, args);
   EXPECT_EQ(expectedSize.size(), args.size());

@@ -17,7 +17,10 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/coroutine>
+
+#include <folly/experimental/coro/Coroutine.h>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -92,8 +95,7 @@ class Baton {
 
     bool await_ready() const noexcept { return baton_.ready(); }
 
-    bool await_suspend(
-        std::experimental::coroutine_handle<> awaitingCoroutine) noexcept {
+    bool await_suspend(coroutine_handle<> awaitingCoroutine) noexcept {
       awaitingCoroutine_ = awaitingCoroutine;
       return baton_.waitImpl(this);
     }
@@ -104,7 +106,7 @@ class Baton {
     friend class Baton;
 
     const Baton& baton_;
-    std::experimental::coroutine_handle<> awaitingCoroutine_;
+    coroutine_handle<> awaitingCoroutine_;
     WaitOperation* next_;
   };
 
@@ -140,3 +142,5 @@ inline void Baton::reset() noexcept {
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

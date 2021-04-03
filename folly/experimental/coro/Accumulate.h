@@ -17,7 +17,10 @@
 #pragma once
 
 #include <folly/experimental/coro/AsyncGenerator.h>
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/Task.h>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -37,8 +40,7 @@ namespace coro {
 //   }
 template <typename Reference, typename Value, typename Output>
 Task<Output> accumulate(
-    AsyncGenerator<Reference, Value> generator,
-    Output init);
+    AsyncGenerator<Reference, Value> generator, Output init);
 
 template <
     typename Reference,
@@ -46,11 +48,11 @@ template <
     typename Output,
     typename BinaryOp>
 Task<Output> accumulate(
-    AsyncGenerator<Reference, Value> generator,
-    Output init,
-    BinaryOp op);
+    AsyncGenerator<Reference, Value> generator, Output init, BinaryOp op);
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES
 
 #include <folly/experimental/coro/Accumulate-inl.h>

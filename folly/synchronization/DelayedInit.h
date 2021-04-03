@@ -17,7 +17,7 @@
 #pragma once
 
 #include <initializer_list>
-#include <memory>
+#include <new>
 #include <stdexcept>
 #include <type_traits>
 
@@ -80,10 +80,9 @@ struct DelayedInit {
    * then the provided function is not called.
    */
   template <typename Func>
-  T& try_emplace_with(Func func) const {
-    call_once(storage_.init, [&]() mutable {
-      new (std::addressof(storage_.value)) T(func());
-    });
+  T& try_emplace_with(Func func) {
+    auto addr = static_cast<void*>(std::addressof(storage_.value));
+    call_once(storage_.init, [&] { ::new (addr) T(func()); });
     return storage_.value;
   }
 
@@ -91,25 +90,17 @@ struct DelayedInit {
    * Gets the pre-existing value if already initialized or constructs the value
    * in-place by direct-initializing with the provided arguments.
    */
-  template <typename... Args>
-  T& try_emplace(Args&&... args) const {
-    call_once(
-        storage_.init,
-        [this](Args&&... forwardedArgs) mutable {
-          new (std::addressof(storage_.value))
-              T(std::forward<Args>(forwardedArgs)...);
-        },
-        std::forward<Args>(args)...);
-    return storage_.value;
+  template <typename... A>
+  T& try_emplace(A&&... a) {
+    return try_emplace_with([&] { return T(static_cast<A&&>(a)...); });
   }
   template <
       typename U,
-      typename... Args,
+      typename... A,
       typename = std::enable_if_t<
-          std::is_constructible<T, std::initializer_list<U>, Args...>::value>>
-  T& try_emplace(std::initializer_list<U> ilist, Args&&... args) const {
-    return try_emplace<std::initializer_list<U>, Args...>(
-        std::move(ilist), std::forward<Args>(args)...);
+          std::is_constructible<T, std::initializer_list<U>, A...>::value>>
+  T& try_emplace(std::initializer_list<U> ilist, A&&... a) {
+    return try_emplace_with([&] { return T(ilist, static_cast<A&&>(a)...); });
   }
 
   bool has_value() const { return test_once(storage_.init); }
@@ -149,11 +140,16 @@ struct DelayedInit {
     }
   }
 
+  using OnceFlag = std::conditional_t<
+      alignof(T) >= sizeof(once_flag),
+      once_flag,
+      compact_once_flag>;
+
   struct StorageTriviallyDestructible {
     union {
       std::remove_const_t<T> value;
     };
-    once_flag init;
+    OnceFlag init;
 
     StorageTriviallyDestructible() {}
   };
@@ -162,7 +158,7 @@ struct DelayedInit {
     union {
       std::remove_const_t<T> value;
     };
-    once_flag init;
+    OnceFlag init;
 
     StorageNonTriviallyDestructible() {}
     ~StorageNonTriviallyDestructible() {
@@ -177,7 +173,7 @@ struct DelayedInit {
       StorageTriviallyDestructible,
       StorageNonTriviallyDestructible>;
 
-  mutable Storage storage_;
+  Storage storage_;
 };
 
 } // namespace folly

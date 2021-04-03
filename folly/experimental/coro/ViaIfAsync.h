@@ -16,11 +16,11 @@
 
 #pragma once
 
-#include <experimental/coroutine>
 #include <memory>
 
 #include <folly/Executor.h>
 #include <folly/Traits.h>
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/Traits.h>
 #include <folly/experimental/coro/WithAsyncStack.h>
 #include <folly/experimental/coro/WithCancellation.h>
@@ -31,9 +31,9 @@
 
 #include <glog/logging.h>
 
-namespace folly {
+#if FOLLY_HAS_COROUTINES
 
-class InlineExecutor;
+namespace folly {
 
 namespace coro {
 
@@ -49,7 +49,7 @@ class ViaCoroutinePromiseBase {
     ::folly_coro_async_free(ptr, size);
   }
 
-  std::experimental::suspend_always initial_suspend() noexcept { return {}; }
+  suspend_always initial_suspend() noexcept { return {}; }
 
   void return_void() noexcept {}
 
@@ -61,8 +61,7 @@ class ViaCoroutinePromiseBase {
     executor_ = std::move(executor);
   }
 
-  void setContinuation(
-      std::experimental::coroutine_handle<> continuation) noexcept {
+  void setContinuation(coroutine_handle<> continuation) noexcept {
     continuation_ = continuation;
   }
 
@@ -92,7 +91,7 @@ class ViaCoroutinePromiseBase {
 
  protected:
   folly::Executor::KeepAlive<> executor_;
-  std::experimental::coroutine_handle<> continuation_;
+  coroutine_handle<> continuation_;
   folly::AsyncStackFrame* asyncFrame_ = nullptr;
   std::shared_ptr<RequestContext> context_;
 };
@@ -105,7 +104,7 @@ class ViaCoroutine {
       bool await_ready() noexcept { return false; }
 
       FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES void await_suspend(
-          std::experimental::coroutine_handle<promise_type> h) noexcept {
+          coroutine_handle<promise_type> h) noexcept {
         auto& promise = h.promise();
         if (!promise.context_) {
           promise.setRequestContext(RequestContext::saveContext());
@@ -123,9 +122,7 @@ class ViaCoroutine {
 
    public:
     ViaCoroutine get_return_object() noexcept {
-      return ViaCoroutine{
-          std::experimental::coroutine_handle<promise_type>::from_promise(
-              *this)};
+      return ViaCoroutine{coroutine_handle<promise_type>::from_promise(*this)};
     }
 
     FinalAwaiter final_suspend() noexcept { return {}; }
@@ -158,8 +155,7 @@ class ViaCoroutine {
     coro_.promise().setExecutor(std::move(executor));
   }
 
-  void setContinuation(
-      std::experimental::coroutine_handle<> continuation) noexcept {
+  void setContinuation(coroutine_handle<> continuation) noexcept {
     coro_.promise().setContinuation(continuation);
   }
 
@@ -177,18 +173,15 @@ class ViaCoroutine {
     coro_.promise().setRequestContext(folly::RequestContext::saveContext());
   }
 
-  std::experimental::coroutine_handle<promise_type> getHandle() noexcept {
-    return coro_;
-  }
+  coroutine_handle<promise_type> getHandle() noexcept { return coro_; }
 
  private:
-  explicit ViaCoroutine(
-      std::experimental::coroutine_handle<promise_type> coro) noexcept
+  explicit ViaCoroutine(coroutine_handle<promise_type> coro) noexcept
       : coro_(coro) {}
 
   static ViaCoroutine createImpl() { co_return; }
 
-  std::experimental::coroutine_handle<promise_type> coro_;
+  coroutine_handle<promise_type> coro_;
 };
 
 } // namespace detail
@@ -200,15 +193,14 @@ class StackAwareViaIfAsyncAwaiter {
   using Awaiter = folly::coro::awaiter_type_t<WithAsyncStackAwaitable>;
   using CoroutineType = detail::ViaCoroutine<true>;
   using CoroutinePromise = typename CoroutineType::promise_type;
-  using WrapperHandle = std::experimental::coroutine_handle<CoroutinePromise>;
+  using WrapperHandle = coroutine_handle<CoroutinePromise>;
 
   using await_suspend_result_t = decltype(
       std::declval<Awaiter&>().await_suspend(std::declval<WrapperHandle>()));
 
  public:
   explicit StackAwareViaIfAsyncAwaiter(
-      folly::Executor::KeepAlive<> executor,
-      Awaitable&& awaitable)
+      folly::Executor::KeepAlive<> executor, Awaitable&& awaitable)
       : viaCoroutine_(CoroutineType::create(std::move(executor))),
         awaitable_(folly::coro::co_withAsyncStack(
             static_cast<Awaitable&&>(awaitable))),
@@ -220,9 +212,9 @@ class StackAwareViaIfAsyncAwaiter {
   }
 
   template <typename Promise>
-  auto await_suspend(std::experimental::coroutine_handle<Promise> h) noexcept(
-      noexcept(std::declval<Awaiter&>().await_suspend(
-          std::declval<WrapperHandle>()))) -> await_suspend_result_t {
+  auto await_suspend(coroutine_handle<Promise> h) noexcept(noexcept(
+      std::declval<Awaiter&>().await_suspend(std::declval<WrapperHandle>())))
+      -> await_suspend_result_t {
     auto& promise = h.promise();
     auto& asyncFrame = promise.getAsyncFrame();
 
@@ -261,15 +253,14 @@ class ViaIfAsyncAwaiter {
   using Awaiter = folly::coro::awaiter_type_t<Awaitable>;
   using CoroutineType = detail::ViaCoroutine<false>;
   using CoroutinePromise = typename CoroutineType::promise_type;
-  using WrapperHandle = std::experimental::coroutine_handle<CoroutinePromise>;
+  using WrapperHandle = coroutine_handle<CoroutinePromise>;
 
   using await_suspend_result_t = decltype(
       std::declval<Awaiter&>().await_suspend(std::declval<WrapperHandle>()));
 
  public:
   explicit ViaIfAsyncAwaiter(
-      folly::Executor::KeepAlive<> executor,
-      Awaitable&& awaitable)
+      folly::Executor::KeepAlive<> executor, Awaitable&& awaitable)
       : viaCoroutine_(CoroutineType::create(std::move(executor))),
         awaiter_(
             folly::coro::get_awaiter(static_cast<Awaitable&&>(awaitable))) {}
@@ -307,11 +298,8 @@ class ViaIfAsyncAwaiter {
   // case.
 
   template <typename Promise>
-  auto await_suspend(
-      std::experimental::coroutine_handle<Promise>
-          continuation) noexcept(noexcept(awaiter_
-                                              .await_suspend(std::declval<
-                                                             WrapperHandle>())))
+  auto await_suspend(coroutine_handle<Promise> continuation) noexcept(noexcept(
+      std::declval<Awaiter&>().await_suspend(std::declval<WrapperHandle>())))
       -> await_suspend_result_t {
     viaCoroutine_.setContinuation(continuation);
 
@@ -327,20 +315,23 @@ class ViaIfAsyncAwaiter {
 
       folly::deactivateAsyncStackFrame(asyncFrame);
 
-      try {
-        if constexpr (std::is_same_v<await_suspend_result_t, bool>) {
-          if (!awaiter_.await_suspend(viaCoroutine_.getHandle())) {
-            // Reactivate the stack-frame before we resume.
-            folly::activateAsyncStackFrame(stackRoot, asyncFrame);
-            return false;
-          }
-          return true;
-        } else {
-          return awaiter_.await_suspend(viaCoroutine_.getHandle());
+      // Reactivate the stack-frame before we resume.
+      auto rollback =
+          makeGuard([&] { activateAsyncStackFrame(stackRoot, asyncFrame); });
+      if constexpr (std::is_same_v<await_suspend_result_t, bool>) {
+        if (!awaiter_.await_suspend(viaCoroutine_.getHandle())) {
+          return false;
         }
-      } catch (...) {
-        folly::activateAsyncStackFrame(stackRoot, asyncFrame);
-        throw;
+        rollback.dismiss();
+        return true;
+      } else if constexpr (std::is_same_v<await_suspend_result_t, void>) {
+        awaiter_.await_suspend(viaCoroutine_.getHandle());
+        rollback.dismiss();
+        return;
+      } else {
+        auto ret = awaiter_.await_suspend(viaCoroutine_.getHandle());
+        rollback.dismiss();
+        return ret;
       }
     } else {
       return awaiter_.await_suspend(viaCoroutine_.getHandle());
@@ -411,8 +402,7 @@ class ViaIfAsyncAwaitable {
   }
 
   friend StackAwareViaIfAsyncAwaitable<Awaitable> tag_invoke(
-      cpo_t<co_withAsyncStack>,
-      ViaIfAsyncAwaitable&& self) {
+      cpo_t<co_withAsyncStack>, ViaIfAsyncAwaitable&& self) {
     return StackAwareViaIfAsyncAwaitable<Awaitable>{
         std::move(self.executor_), static_cast<Awaitable&&>(self.awaitable_)};
   }
@@ -462,11 +452,9 @@ struct ViaIfAsyncFunction {
   template <typename Awaitable>
   auto operator()(folly::Executor::KeepAlive<> executor, Awaitable&& awaitable)
       const noexcept(noexcept(co_viaIfAsync(
-          std::move(executor),
-          static_cast<Awaitable&&>(awaitable))))
+          std::move(executor), static_cast<Awaitable&&>(awaitable))))
           -> decltype(co_viaIfAsync(
-              std::move(executor),
-              static_cast<Awaitable&&>(awaitable))) {
+              std::move(executor), static_cast<Awaitable&&>(awaitable))) {
     return co_viaIfAsync(
         std::move(executor), static_cast<Awaitable&&>(awaitable));
   }
@@ -491,16 +479,15 @@ template <typename T>
 struct is_semi_awaitable<
     T,
     void_t<decltype(folly::coro::co_viaIfAsync(
-        std::declval<folly::Executor::KeepAlive<>>(),
-        std::declval<T>()))>> : std::true_type {};
+        std::declval<folly::Executor::KeepAlive<>>(), std::declval<T>()))>>
+    : std::true_type {};
 
 template <typename T>
 constexpr bool is_semi_awaitable_v = is_semi_awaitable<T>::value;
 
 template <typename T>
 using semi_await_result_t = await_result_t<decltype(folly::coro::co_viaIfAsync(
-    std::declval<folly::Executor::KeepAlive<>>(),
-    std::declval<T>()))>;
+    std::declval<folly::Executor::KeepAlive<>>(), std::declval<T>()))>;
 
 namespace detail {
 
@@ -518,8 +505,7 @@ class TryAwaiter {
   }
 
   template <typename Promise>
-  auto
-  await_suspend(std::experimental::coroutine_handle<Promise> coro) noexcept(
+  auto await_suspend(coroutine_handle<Promise> coro) noexcept(
       noexcept(std::declval<Awaiter&>().await_suspend(coro)))
       -> decltype(std::declval<Awaiter&>().await_suspend(coro)) {
     return awaiter_.await_suspend(coro);
@@ -561,11 +547,9 @@ class TryAwaitable {
   template <
       typename T2 = T,
       typename Result = decltype(folly::coro::co_withCancellation(
-          std::declval<const folly::CancellationToken&>(),
-          std::declval<T2>()))>
+          std::declval<const folly::CancellationToken&>(), std::declval<T2>()))>
   friend TryAwaitable<Result> co_withCancellation(
-      const folly::CancellationToken& cancelToken,
-      TryAwaitable&& awaitable) {
+      const folly::CancellationToken& cancelToken, TryAwaitable&& awaitable) {
     return TryAwaitable<Result>{std::in_place, [&]() -> decltype(auto) {
                                   return folly::coro::co_withCancellation(
                                       cancelToken,
@@ -589,8 +573,7 @@ class TryAwaitable {
   template <
       typename T2 = T,
       typename Result = decltype(folly::coro::co_viaIfAsync(
-          std::declval<folly::Executor::KeepAlive<>>(),
-          std::declval<T2>()))>
+          std::declval<folly::Executor::KeepAlive<>>(), std::declval<T2>()))>
   friend TryAwaitable<Result> co_viaIfAsync(
       folly::Executor::KeepAlive<> executor,
       TryAwaitable&&
@@ -621,3 +604,5 @@ detail::TryAwaitable<remove_cvref_t<Awaitable>> co_awaitTry(
 
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

@@ -33,6 +33,8 @@
 #include <folly/ScopeGuard.h>
 #include <folly/concurrency/CacheLocality.h>
 #include <folly/detail/Futex.h>
+#include <folly/lang/CustomizationPoint.h>
+#include <folly/synchronization/AtomicNotification.h>
 #include <folly/synchronization/detail/AtomicUtils.h>
 #include <folly/synchronization/test/Semaphore.h>
 
@@ -167,8 +169,8 @@ class DeterministicSchedule {
    * runnable thread.  The subset is chosen with size n, and the choice
    * is made every m steps.
    */
-  static std::function<size_t(size_t)>
-  uniformSubset(uint64_t seed, size_t n = 2, size_t m = 64);
+  static std::function<size_t(size_t)> uniformSubset(
+      uint64_t seed, size_t n = 2, size_t m = 64);
 
   /** Obtains permission for the current thread to perform inter-thread
    *  communication. */
@@ -332,9 +334,7 @@ struct DeterministicAtomicImpl {
   bool is_lock_free() const noexcept { return data_.is_lock_free(); }
 
   bool compare_exchange_strong(
-      T& v0,
-      T v1,
-      std::memory_order mo = std::memory_order_seq_cst) noexcept {
+      T& v0, T v1, std::memory_order mo = std::memory_order_seq_cst) noexcept {
     return compare_exchange_strong(
         v0, v1, mo, ::folly::detail::default_failure_memory_order(mo));
   }
@@ -354,9 +354,7 @@ struct DeterministicAtomicImpl {
   }
 
   bool compare_exchange_weak(
-      T& v0,
-      T v1,
-      std::memory_order mo = std::memory_order_seq_cst) noexcept {
+      T& v0, T v1, std::memory_order mo = std::memory_order_seq_cst) noexcept {
     return compare_exchange_weak(
         v0, v1, mo, ::folly::detail::default_failure_memory_order(mo));
   }
@@ -688,18 +686,22 @@ detail::FutexResult deterministicFutexWaitImpl(
  * waits and wakes
  */
 template <typename Integer>
-void atomic_wait(const DeterministicAtomic<Integer>*, Integer) {}
+void tag_invoke(
+    cpo_t<atomic_wait>, const DeterministicAtomic<Integer>*, Integer) {}
 template <typename Integer, typename Clock, typename Duration>
-std::cv_status atomic_wait_until(
+std::cv_status tag_invoke(
+    cpo_t<atomic_wait_until>,
     const DeterministicAtomic<Integer>*,
     Integer,
     const std::chrono::time_point<Clock, Duration>&) {
   return std::cv_status::no_timeout;
 }
 template <typename Integer>
-void atomic_notify_one(const DeterministicAtomic<Integer>*) {}
+void tag_invoke(cpo_t<atomic_notify_one>, const DeterministicAtomic<Integer>*) {
+}
 template <typename Integer>
-void atomic_notify_all(const DeterministicAtomic<Integer>*) {}
+void tag_invoke(cpo_t<atomic_notify_all>, const DeterministicAtomic<Integer>*) {
+}
 
 /**
  * DeterministicMutex is a drop-in replacement of std::mutex that

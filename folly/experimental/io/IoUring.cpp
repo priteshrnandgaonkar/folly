@@ -23,10 +23,10 @@
 #include <string>
 
 #include <boost/intrusive/parent_from_member.hpp>
+#include <fmt/ostream.h>
 #include <glog/logging.h>
 
 #include <folly/Exception.h>
-#include <folly/Format.h>
 #include <folly/Likely.h>
 #include <folly/String.h>
 #include <folly/portability/Unistd.h>
@@ -72,7 +72,8 @@ const char* ioUringOpToString(unsigned char op) {
 #undef X
 
 void toStream(std::ostream& os, const struct io_uring_sqe& sqe) {
-  os << folly::format(
+  fmt::print(
+      os,
       "user_data={}, opcode={}, ioprio={}, f={}, ",
       sqe.user_data,
       ioUringOpToString(sqe.opcode),
@@ -89,7 +90,8 @@ void toStream(std::ostream& os, const struct io_uring_sqe& sqe) {
         if (i) {
           os << ",";
         }
-        os << folly::format(
+        fmt::print(
+            os,
             "buf={}, offset={}, nbytes={}",
             iovec[i].iov_base,
             offset,
@@ -136,11 +138,7 @@ void IoUringOp::preadv(int fd, const iovec* iov, int iovcnt, off_t start) {
 }
 
 void IoUringOp::pread(
-    int fd,
-    void* buf,
-    size_t size,
-    off_t start,
-    int buf_index) {
+    int fd, void* buf, size_t size, off_t start, int buf_index) {
   init();
   io_uring_prep_read_fixed(&sqe_, fd, buf, size, start, buf_index);
   io_uring_sqe_set_data(&sqe_, this);
@@ -161,11 +159,7 @@ void IoUringOp::pwritev(int fd, const iovec* iov, int iovcnt, off_t start) {
 }
 
 void IoUringOp::pwrite(
-    int fd,
-    const void* buf,
-    size_t size,
-    off_t start,
-    int buf_index) {
+    int fd, const void* buf, size_t size, off_t start, int buf_index) {
   init();
   io_uring_prep_write_fixed(&sqe_, fd, buf, size, start, buf_index);
   io_uring_sqe_set_data(&sqe_, this);
@@ -225,8 +219,7 @@ bool IoUring::isAvailable() {
 }
 
 int IoUring::register_buffers(
-    const struct iovec* iovecs,
-    unsigned int nr_iovecs) {
+    const struct iovec* iovecs, unsigned int nr_iovecs) {
   initializeContext();
 
   SharedMutex::WriteHolder lk(submitMutex_);

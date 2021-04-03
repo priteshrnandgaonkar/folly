@@ -16,20 +16,22 @@
 
 #pragma once
 
-// MSCV 2017 __cplusplus definition by default does not track the C++ version.
-// https://devblogs.microsoft.com/cppblog/msvc-now-correctly-reports-__cplusplus/
-#if !defined(_MSC_VER) || _MSC_VER >= 2000
-static_assert(__cplusplus >= 201402L, "__cplusplus >= 201402L");
-#endif
-
-#if defined(__GNUC__) && !defined(__clang__)
-static_assert(__GNUC__ >= 5, "__GNUC__ >= 5");
-#endif
-
 #include <cstddef>
 
 #include <folly/CPortability.h>
 #include <folly/portability/Config.h>
+
+#if defined(_MSC_VER)
+#define FOLLY_CPLUSPLUS _MSVC_LANG
+#else
+#define FOLLY_CPLUSPLUS __cplusplus
+#endif
+
+static_assert(FOLLY_CPLUSPLUS >= 201402L, "__cplusplus >= 201402L");
+
+#if defined(__GNUC__) && !defined(__clang__)
+static_assert(__GNUC__ >= 5, "__GNUC__ >= 5");
+#endif
 
 // Unaligned loads and stores
 namespace folly {
@@ -552,15 +554,19 @@ constexpr auto kCpplibVer = 0;
 
 #if __cplusplus >= 201703L
 // folly::coro requires C++17 support
-#if defined(_WIN32) && defined(__clang__)
-// LLVM and MSVC coroutines are ABI incompatible and <experimental/coroutine>
-// is the MSVC implementation on windows, so we *don't* have coroutines.
+#if defined(_WIN32) && defined(__clang__) && !defined(LLVM_COROUTINES)
+// LLVM and MSVC coroutines are ABI incompatible, so for the MSVC implementation
+// of <experimental/coroutine> on Windows we *don't* have coroutines.
+//
+// LLVM_COROUTINES indicates that LLVM compatible header is added to include
+// path and can be used.
 //
 // Worse, if we define FOLLY_HAS_COROUTINES 1 we will include
 // <experimental/coroutine> which will conflict with anyone who wants to load
 // the LLVM implementation of coroutines on Windows.
 #define FOLLY_HAS_COROUTINES 0
-#elif __cpp_coroutines >= 201703L && __has_include(<experimental/coroutine>)
+#elif (__cpp_coroutines >= 201703L || __cpp_impl_coroutine >= 201902L) && \
+    (__has_include(<coroutine>) || __has_include(<experimental/coroutine>))
 #define FOLLY_HAS_COROUTINES 1
 // This is mainly to workaround bugs triggered by LTO, when stack allocated
 // variables in await_suspend end up on a coroutine frame.
@@ -591,18 +597,9 @@ constexpr auto kCpplibVer = 0;
 #endif
 
 // feature test __cpp_lib_string_view is defined in <string>, which is
-// too heavy to include here.  MSVC __has_include support arrived later
-// than string_view, so we need an alternate case for it.
-#ifdef __has_include
-#if __has_include(<string_view>) && __cplusplus >= 201703L
+// too heavy to include here.
+#if __has_include(<string_view>) && FOLLY_CPLUSPLUS >= 201703L
 #define FOLLY_HAS_STRING_VIEW 1
 #else
 #define FOLLY_HAS_STRING_VIEW 0
 #endif
-#else // __has_include
-#if _MSC_VER >= 1910 && (_MSVC_LANG > 201402 || __cplusplus > 201402)
-#define FOLLY_HAS_STRING_VIEW 1
-#else
-#define FOLLY_HAS_STRING_VIEW 0
-#endif
-#endif // __has_include

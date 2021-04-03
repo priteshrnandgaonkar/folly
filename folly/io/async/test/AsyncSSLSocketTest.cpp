@@ -35,8 +35,10 @@
 #include <folly/io/async/EventBaseThread.h>
 #include <folly/io/async/ScopedEventBaseThread.h>
 #include <folly/io/async/test/BlockingSocket.h>
+#include <folly/io/async/test/MockAsyncTransportObserver.h>
 #include <folly/net/NetOps.h>
 #include <folly/net/NetworkSocket.h>
+#include <folly/net/test/MockNetOpsDispatcher.h>
 #include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
 #include <folly/portability/OpenSSL.h>
@@ -49,10 +51,6 @@
 
 #if FOLLY_OPENSSL_IS_110
 #include <openssl/async.h>
-#endif
-
-#ifdef FOLLY_HAVE_MSG_ERRQUEUE
-#include <sys/utsname.h>
 #endif
 
 using std::cerr;
@@ -87,11 +85,7 @@ GlobalStatic globalStatic;
 // we intercept setsoctopt to test setting NO_TRANSPARENT_TLS opt
 // this name has to be global
 int setsockopt(
-    int sockfd,
-    int level,
-    int optname,
-    const void* optval,
-    socklen_t optlen) {
+    int sockfd, int level, int optname, const void* optval, socklen_t optlen) {
   if (optname == SO_NO_TRANSPARENT_TLS) {
     globalStatic.ttlsDisabledSet.insert(folly::NetworkSocket::fromFd(sockfd));
     return 0;
@@ -157,10 +151,7 @@ bool clientProtoFilterPickPony(
 }
 
 bool clientProtoFilterPickNone(
-    unsigned char**,
-    unsigned int*,
-    const unsigned char*,
-    unsigned int) {
+    unsigned char**, unsigned int*, const unsigned char*, unsigned int) {
   return false;
 }
 
@@ -748,6 +739,7 @@ TEST(AsyncSSLSocketTest, SSLClientTest) {
   // Set up SSL client
   EventBase eventBase;
   auto client = std::make_shared<SSLClient>(&eventBase, server.getAddress(), 1);
+  client->setSSLOptions(SSL_OP_NO_TICKET);
 
   client->connect();
   EventBaseAborter eba(&eventBase, 3000);
@@ -774,6 +766,7 @@ TEST(AsyncSSLSocketTest, SSLClientTestReuse) {
   EventBase eventBase;
   auto client =
       std::make_shared<SSLClient>(&eventBase, server.getAddress(), 10);
+  client->setSSLOptions(SSL_OP_NO_TICKET);
 
   client->connect();
   EventBaseAborter eba(&eventBase, 3000);
@@ -800,6 +793,8 @@ TEST(AsyncSSLSocketTest, SSLClientTimeoutTest) {
   EventBase eventBase;
   auto client =
       std::make_shared<SSLClient>(&eventBase, server.getAddress(), 1, 10);
+  client->setSSLOptions(SSL_OP_NO_TICKET);
+
   client->connect(true /* write before connect completes */);
   EventBaseAborter eba(&eventBase, 3000);
   eventBase.loop();
@@ -1914,8 +1909,8 @@ inline void RSAPointersFree(RSAPointers* p) {
 using RSAPointersDeleter =
     folly::static_function_deleter<RSAPointers, RSAPointersFree>;
 
-std::unique_ptr<RSAPointers, RSAPointersDeleter>
-setupCustomRSA(const char* certPath, const char* keyPath, EventBase* jobEvb) {
+std::unique_ptr<RSAPointers, RSAPointersDeleter> setupCustomRSA(
+    const char* certPath, const char* keyPath, EventBase* jobEvb) {
   auto certPEM = getFileAsBuf(certPath);
   auto keyPEM = getFileAsBuf(keyPath);
 
@@ -2620,13 +2615,11 @@ class MockAsyncTFOSSLSocket : public AsyncSSLSocket {
       std::unique_ptr<MockAsyncTFOSSLSocket, ReleasableDestructor>;
 
   explicit MockAsyncTFOSSLSocket(
-      std::shared_ptr<folly::SSLContext> sslCtx,
-      EventBase* evb)
+      std::shared_ptr<folly::SSLContext> sslCtx, EventBase* evb)
       : AsyncSSLSocket(sslCtx, evb) {}
 
   MOCK_METHOD3(
-      tfoSendMsg,
-      ssize_t(NetworkSocket fd, struct msghdr* msg, int msg_flags));
+      tfoSendMsg, ssize_t(NetworkSocket fd, struct msghdr* msg, int msg_flags));
 };
 
 #if defined __linux__
@@ -2754,9 +2747,7 @@ class ConnCallback : public AsyncSocket::ConnectCallback {
 
 template <class Cardinality>
 MockAsyncTFOSSLSocket::UniquePtr setupSocketWithFallback(
-    EventBase* evb,
-    const SocketAddress& address,
-    Cardinality cardinality) {
+    EventBase* evb, const SocketAddress& address, Cardinality cardinality) {
   // Set up SSL context.
   auto sslContext = std::make_shared<SSLContext>();
 
@@ -2987,107 +2978,481 @@ TEST(AsyncSSLSocketTest, SendMsgParamsCallback) {
   cerr << "SendMsgParamsCallback test completed" << endl;
 }
 
-#ifdef FOLLY_HAVE_MSG_ERRQUEUE
-/**
- * Test connecting to, writing to, reading from, and closing the
- * connection to the SSL server with ancillary data from the application.
- */
-TEST(AsyncSSLSocketTest, SendMsgDataCallback) {
-  // This test requires Linux kernel v4.6 or later
-  struct utsname s_uname;
-  memset(&s_uname, 0, sizeof(s_uname));
-  ASSERT_EQ(uname(&s_uname), 0);
-  int major, minor;
-  folly::StringPiece extra;
-  if (folly::split<false>(
-          '.', std::string(s_uname.release) + ".", major, minor, extra)) {
-    if (major < 4 || (major == 4 && minor < 6)) {
-      LOG(INFO) << "Kernel version: 4.6 and newer required for this test ("
-                << "kernel ver. " << s_uname.release << " detected).";
-      return;
+#if FOLLY_HAVE_SO_TIMESTAMPING
+
+class AsyncSSLSocketByteEventTest : public ::testing::Test {
+ protected:
+  using MockDispatcher = ::testing::NiceMock<netops::test::MockDispatcher>;
+  using TestObserver = test::MockAsyncTransportObserverForByteEvents;
+  using ByteEventType = AsyncTransport::ByteEvent::Type;
+
+  /**
+   * Components of a client connection to TestServer.
+   *
+   * Includes EventBase, client's AsyncSocket.
+   */
+  class ClientConn {
+   public:
+    explicit ClientConn(
+        std::shared_ptr<TestSSLServer> server,
+        std::shared_ptr<AsyncSSLSocket> socket = nullptr)
+        : server_(std::move(server)), socket_(std::move(socket)) {
+      if (!socket_) {
+        socket_ = AsyncSSLSocket::newSocket(getSslContext(), &getEventBase());
+      }
+      socket_->setOverrideNetOpsDispatcher(netOpsDispatcher_);
+      netOpsDispatcher_->forwardToDefaultImpl();
     }
+
+    ~ClientConn() {
+      if (socket_) {
+        socket_->close();
+      }
+    }
+
+    void connect() {
+      CHECK_NOTNULL(socket_.get());
+      CHECK_NOTNULL(socket_->getEventBase());
+      socket_->connect(&connCb_, server_->getAddress(), 30);
+      socket_->getEventBase()->loop();
+      ASSERT_EQ(connCb_.state, ConnCallback::State::SUCCESS);
+      setReadCb();
+    }
+
+    void setReadCb() {
+      // Due to how libevent works, we currently need to be subscribed to
+      // EV_READ events in order to get error messages.
+      //
+      // TODO(bschlinker): Resolve this with libevent modification.
+      // See https://github.com/libevent/libevent/issues/1038 for details.
+      socket_->setReadCB(&readCb_);
+      readCb_.setSocket(socket_);
+    }
+
+    std::shared_ptr<NiceMock<TestObserver>> attachObserver(
+        bool enableByteEvents) {
+      auto observer = AsyncSSLSocketByteEventTest::attachObserver(
+          socket_.get(), enableByteEvents);
+      observers.push_back(observer);
+      return observer;
+    }
+
+    /**
+     * Write to client socket, echo at server, and wait for echo at client.
+     *
+     * Waiting for echo at client ensures that we have given opportunity for
+     * timestamps to be generated by the kernel.
+     */
+    void writeAndReflect(
+        const std::vector<uint8_t>& wbuf, const WriteFlags writeFlags) {
+      CHECK_NOTNULL(socket_.get());
+      CHECK_NOTNULL(socket_->getEventBase());
+
+      // write to the client socket
+      WriteCallbackBase wcb;
+      socket_->write(&wcb, wbuf.data(), wbuf.size(), writeFlags);
+      while (wcb.state == STATE_WAITING) {
+        socket_->getEventBase()->loopOnce();
+      }
+      ASSERT_EQ(wcb.state, STATE_SUCCEEDED);
+
+      // TestSSLServer reads and reflects for us
+
+      // read reflection at client
+      while (wbuf.size() != readCb_.dataRead()) {
+        socket_->getEventBase()->loopOnce();
+      }
+      readCb_.verifyData(wbuf.data(), wbuf.size());
+      readCb_.clearData();
+    }
+
+    std::shared_ptr<AsyncSSLSocket> getRawSocket() { return socket_; }
+
+    std::shared_ptr<SSLContext> getSslContext() {
+      static std::shared_ptr<SSLContext> sslContext = initSslContext();
+      return sslContext;
+    }
+
+    EventBase& getEventBase() {
+      static EventBase evb; // use same EventBase for all client sockets
+      return evb;
+    }
+
+    void netOpsExpectTimestampingSetSockOpt() {
+      // must whitelist other calls
+      EXPECT_CALL(*netOpsDispatcher_, setsockopt(_, _, _, _, _))
+          .Times(AnyNumber());
+      EXPECT_CALL(
+          *netOpsDispatcher_, setsockopt(_, SOL_SOCKET, SO_TIMESTAMPING, _, _))
+          .Times(1);
+    }
+
+    void netOpsExpectNoTimestampingSetSockOpt() {
+      // must whitelist other calls
+      EXPECT_CALL(*netOpsDispatcher_, setsockopt(_, _, _, _, _))
+          .Times(AnyNumber());
+      EXPECT_CALL(
+          *netOpsDispatcher_, setsockopt(_, SOL_SOCKET, SO_TIMESTAMPING, _, _))
+          .Times(0);
+    }
+
+    void netOpsExpectWriteWithFlags(WriteFlags writeFlags) {
+      EXPECT_CALL(*netOpsDispatcher_, sendmsg(_, _, _))
+          .WillOnce(Invoke(
+              [this, writeFlags](
+                  NetworkSocket socket, const msghdr* message, int flags) {
+                EXPECT_EQ(writeFlags, getMsgWriteFlags(*message));
+                return netOpsDispatcher_->netops::Dispatcher::sendmsg(
+                    socket, message, flags);
+              }));
+    }
+
+    void netOpsVerifyAndClearExpectations() {
+      Mock::VerifyAndClearExpectations(netOpsDispatcher_.get());
+    }
+
+    /**
+     * Static utilities.
+     */
+    static std::shared_ptr<SSLContext> initSslContext() {
+      auto sslContext = std::make_shared<SSLContext>();
+      sslContext->ciphers("ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
+      return sslContext;
+    }
+
+   private:
+    // server
+    std::shared_ptr<TestSSLServer> server_;
+
+    // managed observers
+    std::vector<std::shared_ptr<TestObserver>> observers;
+
+    // socket components
+    ConnCallback connCb_;
+    ReadCallback readCb_;
+    std::shared_ptr<MockDispatcher> netOpsDispatcher_{
+        std::make_shared<MockDispatcher>()};
+    std::shared_ptr<AsyncSSLSocket> socket_;
+  };
+
+  ClientConn getClientConn() { return ClientConn(server_); }
+
+  void SetUp() override {
+    serverWriteCb_ = std::make_unique<WriteCallbackBase>();
+    serverReadCb_ = std::make_unique<ReadCallback>(serverWriteCb_.get());
+    serverHandshakeCb_ =
+        std::make_unique<HandshakeCallback>(serverReadCb_.get());
+    serverAcceptCb_ =
+        std::make_unique<SSLServerAcceptCallback>(serverHandshakeCb_.get());
+    server_ = std::make_shared<TestSSLServer>(serverAcceptCb_.get());
   }
 
-  // Start listening on a local port
-  SendMsgAncillaryDataCallback msgCallback;
-  WriteCheckTimestampCallback writeCallback(&msgCallback);
-  ReadCallback readCallback(&writeCallback);
-  HandshakeCallback handshakeCallback(&readCallback);
-  SSLServerAcceptCallback acceptCallback(&handshakeCallback);
-  TestSSLServer server(&acceptCallback);
+  /**
+   * Static utility functions.
+   */
 
-  // Set up SSL context.
-  auto sslContext = std::make_shared<SSLContext>();
-  sslContext->ciphers("ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
-
-  // connect
-  auto socket =
-      std::make_shared<BlockingSocket>(server.getAddress(), sslContext);
-  socket->open();
-
-  // we'll pass the EOR and TIMESTAMP_TX flags with the write back
-  // EOR tracking must be enabled for WriteFlags be passed
-  const auto writeFlags =
-      folly::WriteFlags::EOR | folly::WriteFlags::TIMESTAMP_TX;
-  readCallback.setWriteFlags(writeFlags);
-  msgCallback.setEorTracking(true);
-
-  // Init ancillary data buffer to trigger timestamp notification
-  //
-  // We generate the same ancillary data regardless of the specific WriteFlags,
-  // we verify that the WriteFlags are observed as expected below.
-  union {
-    uint8_t ctrl_data[CMSG_LEN(sizeof(uint32_t))];
-    struct cmsghdr cmsg;
-  } u;
-  u.cmsg.cmsg_level = SOL_SOCKET;
-  u.cmsg.cmsg_type = SO_TIMESTAMPING;
-  u.cmsg.cmsg_len = CMSG_LEN(sizeof(uint32_t));
-  uint32_t flags = SOF_TIMESTAMPING_TX_SCHED | SOF_TIMESTAMPING_TX_SOFTWARE |
-      SOF_TIMESTAMPING_TX_ACK;
-  memcpy(CMSG_DATA(&u.cmsg), &flags, sizeof(uint32_t));
-  std::vector<char> ctrl(CMSG_LEN(sizeof(uint32_t)));
-  memcpy(ctrl.data(), u.ctrl_data, CMSG_LEN(sizeof(uint32_t)));
-  msgCallback.resetData(std::move(ctrl));
-
-  // write(), including flags
-  std::vector<uint8_t> buf(128, 'a');
-  socket->write(buf.data(), buf.size(), writeFlags);
-
-  // read()
-  std::vector<uint8_t> readbuf(buf.size());
-  uint32_t bytesRead = socket->readAll(readbuf.data(), readbuf.size());
-  EXPECT_EQ(bytesRead, buf.size());
-  EXPECT_TRUE(std::equal(buf.begin(), buf.end(), readbuf.begin()));
-
-  // should receive three timestamps (schedule, TX/SND, ACK)
-  // may take some time for all to arrive, so loop to wait
-  //
-  // socket error queue does not have the equivalent of an EOF, so we must
-  // loop on it unless we want to use libevent for this test...
-  const std::vector<int32_t> timestampsExpected = {
-      SCM_TSTAMP_SCHED, SCM_TSTAMP_SND, SCM_TSTAMP_ACK};
-  std::vector<int32_t> timestampsReceived;
-  while (timestampsExpected.size() != timestampsReceived.size()) {
-    const auto timestamps = writeCallback.getTimestampNotifications();
-    timestampsReceived.insert(
-        timestampsReceived.end(), timestamps.begin(), timestamps.end());
+  static std::shared_ptr<NiceMock<TestObserver>> attachObserver(
+      AsyncSocket* socket, bool enableByteEvents) {
+    AsyncTransport::LifecycleObserver::Config config = {};
+    config.byteEvents = enableByteEvents;
+    return std::make_shared<NiceMock<TestObserver>>(socket, config);
   }
-  EXPECT_THAT(timestampsReceived, ElementsAreArray(timestampsExpected));
 
-  // check the observed write flags
-  EXPECT_EQ(
-      static_cast<std::underlying_type<folly::WriteFlags>::type>(
-          msgCallback.getObservedWriteFlags()),
-      static_cast<std::underlying_type<folly::WriteFlags>::type>(writeFlags));
+  static WriteFlags getMsgWriteFlags(const struct msghdr& msg) {
+    const struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+    if (!cmsg || cmsg->cmsg_level != SOL_SOCKET ||
+        cmsg->cmsg_type != SO_TIMESTAMPING ||
+        cmsg->cmsg_len != CMSG_LEN(sizeof(uint32_t))) {
+      return WriteFlags::NONE;
+    }
 
-  // close()
-  socket->close();
-  cerr << "SendMsgDataCallback test completed" << endl;
+    const uint32_t* sofFlags =
+        (reinterpret_cast<const uint32_t*>(CMSG_DATA(cmsg)));
+    WriteFlags flags = WriteFlags::NONE;
+    if (*sofFlags & folly::netops::SOF_TIMESTAMPING_TX_SCHED) {
+      flags = flags | WriteFlags::TIMESTAMP_SCHED;
+    }
+    if (*sofFlags & folly::netops::SOF_TIMESTAMPING_TX_SOFTWARE) {
+      flags = flags | WriteFlags::TIMESTAMP_TX;
+    }
+    if (*sofFlags & folly::netops::SOF_TIMESTAMPING_TX_ACK) {
+      flags = flags | WriteFlags::TIMESTAMP_ACK;
+    }
+
+    return flags;
+  }
+
+  static WriteFlags dropWriteFromFlags(WriteFlags writeFlags) {
+    return writeFlags & ~WriteFlags::TIMESTAMP_WRITE;
+  }
+
+  // server components
+  std::unique_ptr<WriteCallbackBase> serverWriteCb_;
+  std::unique_ptr<ReadCallback> serverReadCb_;
+  std::unique_ptr<HandshakeCallback> serverHandshakeCb_;
+  std::unique_ptr<SSLServerAcceptCallback> serverAcceptCb_;
+  std::shared_ptr<TestSSLServer> server_;
+};
+
+TEST_F(AsyncSSLSocketByteEventTest, ObserverAttachedBeforeConnect) {
+  const auto flags = WriteFlags::TIMESTAMP_WRITE | WriteFlags::TIMESTAMP_SCHED |
+      WriteFlags::TIMESTAMP_TX | WriteFlags::TIMESTAMP_ACK;
+  const std::vector<uint8_t> wbuf(1, 'a');
+
+  auto clientConn = getClientConn();
+  auto observer = clientConn.attachObserver(true /* enableByteEvents */);
+  clientConn.netOpsExpectTimestampingSetSockOpt();
+  clientConn.connect();
+  EXPECT_EQ(1, observer->byteEventsEnabledCalled);
+  EXPECT_EQ(0, observer->byteEventsUnavailableCalled);
+  EXPECT_FALSE(observer->byteEventsUnavailableCalledEx.has_value());
+  clientConn.netOpsVerifyAndClearExpectations();
+
+  {
+    clientConn.netOpsExpectWriteWithFlags(dropWriteFromFlags(flags));
+    clientConn.writeAndReflect(wbuf, flags);
+    clientConn.netOpsVerifyAndClearExpectations();
+
+    // may have more than four new ByteEvents if write split further by kernel
+    EXPECT_THAT(observer->byteEvents, SizeIs(Ge(4)));
+
+    // due to SSL overhead, offset will not be 0
+    auto offsetExpected = clientConn.getRawSocket()->getRawBytesWritten() - 1;
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::WRITE));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::SCHED));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::TX));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::ACK));
+  }
+
+  // write again to check offsets
+  {
+    const auto startNumByteEvents = observer->byteEvents.size();
+    clientConn.netOpsExpectWriteWithFlags(dropWriteFromFlags(flags));
+    clientConn.writeAndReflect(wbuf, flags);
+    clientConn.netOpsVerifyAndClearExpectations();
+
+    // may have more than four new ByteEvents if write split further by kernel
+    EXPECT_THAT(observer->byteEvents, SizeIs(Ge(startNumByteEvents + 4)));
+
+    // due to SSL overhead, offset will not be 1
+    auto offsetExpected = clientConn.getRawSocket()->getRawBytesWritten() - 1;
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::WRITE));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::SCHED));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::TX));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::ACK));
+  }
 }
-#endif // FOLLY_HAVE_MSG_ERRQUEUE
 
-#endif
+TEST_F(AsyncSSLSocketByteEventTest, ObserverAttachedAfterConnect) {
+  const auto flags = WriteFlags::TIMESTAMP_WRITE | WriteFlags::TIMESTAMP_SCHED |
+      WriteFlags::TIMESTAMP_TX | WriteFlags::TIMESTAMP_ACK;
+  const std::vector<uint8_t> wbuf(1, 'a');
+
+  auto clientConn = getClientConn();
+  clientConn.netOpsExpectNoTimestampingSetSockOpt();
+  clientConn.connect();
+  clientConn.netOpsVerifyAndClearExpectations();
+
+  clientConn.netOpsExpectTimestampingSetSockOpt();
+  auto observer = clientConn.attachObserver(true /* enableByteEvents */);
+  EXPECT_EQ(1, observer->byteEventsEnabledCalled);
+  EXPECT_EQ(0, observer->byteEventsUnavailableCalled);
+  EXPECT_FALSE(observer->byteEventsUnavailableCalledEx.has_value());
+  clientConn.netOpsVerifyAndClearExpectations();
+
+  {
+    clientConn.netOpsExpectWriteWithFlags(dropWriteFromFlags(flags));
+    clientConn.writeAndReflect(wbuf, flags);
+    clientConn.netOpsVerifyAndClearExpectations();
+
+    // may have more than four new ByteEvents if write split further by kernel
+    EXPECT_THAT(observer->byteEvents, SizeIs(Ge(4)));
+
+    // due to SSL overhead, offset will not be 0
+    auto offsetExpected = clientConn.getRawSocket()->getRawBytesWritten() - 1;
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::WRITE));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::SCHED));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::TX));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::ACK));
+  }
+
+  // write again to check offsets
+  {
+    const auto startNumByteEvents = observer->byteEvents.size();
+    clientConn.netOpsExpectWriteWithFlags(dropWriteFromFlags(flags));
+    clientConn.writeAndReflect(wbuf, flags);
+    clientConn.netOpsVerifyAndClearExpectations();
+
+    // may have more than four new ByteEvents if write split further by kernel
+    EXPECT_THAT(observer->byteEvents, SizeIs(Ge(startNumByteEvents + 4)));
+
+    // due to SSL overhead, offset will not be 1
+    auto offsetExpected = clientConn.getRawSocket()->getRawBytesWritten() - 1;
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::WRITE));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::SCHED));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::TX));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::ACK));
+  }
+}
+
+TEST_F(AsyncSSLSocketByteEventTest, MultiByteWrites) {
+  const auto flags = WriteFlags::TIMESTAMP_WRITE | WriteFlags::TIMESTAMP_SCHED |
+      WriteFlags::TIMESTAMP_TX | WriteFlags::TIMESTAMP_ACK;
+
+  auto clientConn = getClientConn();
+  auto observer = clientConn.attachObserver(true /* enableByteEvents */);
+  clientConn.netOpsExpectTimestampingSetSockOpt();
+  clientConn.connect();
+  EXPECT_EQ(1, observer->byteEventsEnabledCalled);
+  EXPECT_EQ(0, observer->byteEventsUnavailableCalled);
+  EXPECT_FALSE(observer->byteEventsUnavailableCalledEx.has_value());
+  clientConn.netOpsVerifyAndClearExpectations();
+
+  // write 20 bytes
+  {
+    std::vector<uint8_t> wbuf(20, 'a'); // 20 bytes
+
+    clientConn.netOpsExpectWriteWithFlags(dropWriteFromFlags(flags));
+    clientConn.writeAndReflect(wbuf, flags);
+    clientConn.netOpsVerifyAndClearExpectations();
+
+    // may have more than four new ByteEvents if write split further by kernel
+    EXPECT_THAT(observer->byteEvents, SizeIs(Ge(4)));
+
+    // due to SSL overhead, offset will not be 0
+    auto offsetExpected = clientConn.getRawSocket()->getRawBytesWritten() - 1;
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::WRITE));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::SCHED));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::TX));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::ACK));
+  }
+
+  // write 40 bytes
+  {
+    std::vector<uint8_t> wbuf(20, 'a'); // 20 bytes
+
+    const auto startNumByteEvents = observer->byteEvents.size();
+    clientConn.netOpsExpectWriteWithFlags(dropWriteFromFlags(flags));
+    clientConn.writeAndReflect(wbuf, flags);
+    clientConn.netOpsVerifyAndClearExpectations();
+
+    // may have more than four new ByteEvents if write split further by kernel
+    EXPECT_THAT(observer->byteEvents, SizeIs(Ge(startNumByteEvents + 4)));
+
+    // due to SSL overhead, offset will not be 1
+    auto offsetExpected = clientConn.getRawSocket()->getRawBytesWritten() - 1;
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::WRITE));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::SCHED));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::TX));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::ACK));
+  }
+}
+
+TEST_F(AsyncSSLSocketByteEventTest, MultiByteWritesEnableSecondWrite) {
+  const auto flags = WriteFlags::TIMESTAMP_WRITE | WriteFlags::TIMESTAMP_SCHED |
+      WriteFlags::TIMESTAMP_TX | WriteFlags::TIMESTAMP_ACK;
+
+  auto clientConn = getClientConn();
+  clientConn.netOpsExpectNoTimestampingSetSockOpt();
+  clientConn.connect();
+  clientConn.netOpsVerifyAndClearExpectations();
+
+  // write 20 bytes with no ByteEvents / observer
+  {
+    std::vector<uint8_t> wbuf(20, 'a'); // 20 bytes
+    clientConn.netOpsExpectWriteWithFlags(WriteFlags::NONE);
+    clientConn.writeAndReflect(wbuf, flags);
+    clientConn.netOpsVerifyAndClearExpectations();
+  }
+
+  // enable observer
+  clientConn.netOpsExpectTimestampingSetSockOpt();
+  auto observer = clientConn.attachObserver(true /* enableByteEvents */);
+  EXPECT_EQ(1, observer->byteEventsEnabledCalled);
+  EXPECT_EQ(0, observer->byteEventsUnavailableCalled);
+  EXPECT_FALSE(observer->byteEventsUnavailableCalledEx.has_value());
+  clientConn.netOpsVerifyAndClearExpectations();
+
+  // write 40 bytes
+  {
+    std::vector<uint8_t> wbuf(20, 'a'); // 20 bytes
+
+    const auto startNumByteEvents = observer->byteEvents.size();
+    clientConn.netOpsExpectWriteWithFlags(dropWriteFromFlags(flags));
+    clientConn.writeAndReflect(wbuf, flags);
+    clientConn.netOpsVerifyAndClearExpectations();
+
+    // may have more than four new ByteEvents if write split further by kernel
+    EXPECT_THAT(observer->byteEvents, SizeIs(Ge(startNumByteEvents + 4)));
+
+    // due to SSL overhead, offset will not be 1
+    auto offsetExpected = clientConn.getRawSocket()->getRawBytesWritten() - 1;
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::WRITE));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::SCHED));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::TX));
+    EXPECT_EQ(
+        offsetExpected,
+        observer->maxOffsetForByteEventReceived(ByteEventType::ACK));
+  }
+}
+
+#endif // FOLLY_HAVE_SO_TIMESTAMPING
+
+#endif // __linux__
 
 TEST(AsyncSSLSocketTest, TestSNIClientHelloBehavior) {
   EventBase eventBase;
@@ -3170,6 +3535,52 @@ TEST(AsyncSSLSocketTest, TestSNIClientHelloBehavior) {
     EXPECT_EQ(sniStr, std::string("Baz"));
   }
 }
+
+TEST(AsyncSSLSocketTest, BytesWrittenWithMove) {
+  WriteCallbackBase writeCallback;
+  ReadCallback readCallback(&writeCallback);
+  HandshakeCallback handshakeCallback(&readCallback);
+  SSLServerAcceptCallback acceptCallback(&handshakeCallback);
+  TestSSLServer server(&acceptCallback);
+
+  auto sslContext = std::make_shared<SSLContext>();
+  sslContext->ciphers("ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
+  auto socket1 =
+      std::make_shared<BlockingSocket>(server.getAddress(), sslContext);
+  socket1->open(std::chrono::milliseconds(10000));
+
+  // write
+  std::vector<uint8_t> wbuf(128, 'a');
+  socket1->write(wbuf.data(), wbuf.size());
+  const auto socket1AppBytes = socket1->getSocket()->getAppBytesWritten();
+  const auto socket1RawBytes = socket1->getSocket()->getRawBytesWritten();
+  EXPECT_EQ(128, socket1AppBytes);
+  EXPECT_LT(128, socket1RawBytes);
+
+  // read reflection
+  std::vector<uint8_t> readbuf(wbuf.size());
+  uint32_t bytesRead = socket1->readAll(readbuf.data(), readbuf.size());
+  EXPECT_EQ(bytesRead, wbuf.size());
+
+  // additional sanity checks on virtuals
+  EXPECT_EQ(
+      socket1->getSSLSocket()->getRawBytesWritten(),
+      socket1->getSocket()->getRawBytesWritten());
+  EXPECT_EQ(128, socket1->getSocket()->getAppBytesWritten());
+  EXPECT_EQ(128, socket1->getSSLSocket()->getAppBytesWritten());
+
+  // move to another AsyncSSLSocket
+  AsyncSSLSocket::UniquePtr socket2(
+      new AsyncSSLSocket(sslContext, socket1->getSocket()));
+  EXPECT_EQ(socket1AppBytes, socket2->getAppBytesWritten());
+  EXPECT_EQ(socket1RawBytes, socket2->getRawBytesWritten());
+
+  // move to an AsyncSocket
+  AsyncSocket::UniquePtr socket3(new AsyncSocket(std::move(socket2)));
+  EXPECT_EQ(socket1AppBytes, socket3->getAppBytesWritten());
+  EXPECT_EQ(socket1RawBytes, socket3->getRawBytesWritten());
+}
+
 } // namespace folly
 
 #ifdef SIGPIPE

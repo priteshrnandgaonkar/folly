@@ -25,37 +25,28 @@
 #include <folly/lang/Pretty.h>
 #include <folly/portability/GTest.h>
 
-namespace folly {
-namespace exception_test {
-
-template <typename... T>
-FOLLY_ATTR_WEAK FOLLY_NOINLINE void sink(T&&...) {}
-
-} // namespace exception_test
-} // namespace folly
-
 extern "C" FOLLY_KEEP void check_cond_std_terminate(bool c) {
   if (c) {
     std::terminate();
   }
-  folly::exception_test::sink();
+  folly::detail::keep_sink();
 }
 extern "C" FOLLY_KEEP void check_cond_folly_terminate_with(bool c) {
   if (c) {
     folly::terminate_with<std::runtime_error>("bad error");
   }
-  folly::exception_test::sink();
+  folly::detail::keep_sink();
 }
 
 template <typename Ex>
 static std::string message_for_terminate_with(std::string const& what) {
   auto const name = folly::pretty_name<Ex>();
-  auto const prefix =
-      std::string("terminate called after throwing an instance of ");
+  std::string const p0 = "terminate called after throwing an instance of";
+  std::string const p1 = "terminating with uncaught exception of type";
   // clang-format off
   return
-      folly::kIsGlibcxx ? prefix + "'" + name + "'\\s+what\\(\\):\\s+" + what :
-      folly::kIsLibcpp ? prefix + name + ": " + what :
+      folly::kIsGlibcxx ? p0 + " '" + name + "'\\s+what\\(\\):\\s+" + what :
+      folly::kIsLibcpp ? p1 + " " + name + ": " + what :
       "" /* empty regex matches anything */;
   // clang-format on
 }

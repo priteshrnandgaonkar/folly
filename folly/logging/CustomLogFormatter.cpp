@@ -69,9 +69,7 @@ struct FormatKeys {
   const std::size_t width;
 
   constexpr FormatKeys(
-      StringPiece key_,
-      std::size_t argIndex_,
-      std::size_t width_ = 0)
+      StringPiece key_, std::size_t argIndex_, std::size_t width_ = 0)
       : key(key_), argIndex(argIndex_), width(width_) {}
 };
 
@@ -232,8 +230,7 @@ void CustomLogFormatter::parseFormatString(StringPiece input) {
 }
 
 std::string CustomLogFormatter::formatMessage(
-    const LogMessage& message,
-    const LogCategory* /* handlerCategory */) {
+    const LogMessage& message, const LogCategory* /* handlerCategory */) {
   // Get the local time info
   struct tm ltime;
   auto timeSinceEpoch = message.getTimestamp().time_since_epoch();
@@ -277,7 +274,7 @@ std::string CustomLogFormatter::formatMessage(
   // If the message contains multiple lines, ensure that the log header is
   // prepended before each message line.
   else {
-    const auto headerFormatter = folly::format(
+    const auto header = folly::sformat(
         logFormat_,
         getGlogLevelName(message.getLevel())[0],
         ltime.tm_mon + 1,
@@ -324,7 +321,7 @@ std::string CustomLogFormatter::formatMessage(
       }
 
       auto line = msgData.subpiece(idx, end - idx);
-      headerFormatter.appendTo(buffer);
+      buffer += header;
       buffer.append(line.data(), line.size());
       buffer.push_back('\n');
 

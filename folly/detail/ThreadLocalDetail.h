@@ -372,8 +372,8 @@ struct StaticMetaBase {
   // returns != nullptr if the ThreadEntry::elements was reallocated
   // nullptr if the ThreadEntry::elements was just extended
   // and throws stdd:bad_alloc if memory cannot be allocated
-  static ElementWrapper*
-  reallocate(ThreadEntry* threadEntry, uint32_t idval, size_t& newCapacity);
+  static ElementWrapper* reallocate(
+      ThreadEntry* threadEntry, uint32_t idval, size_t& newCapacity);
 
   uint32_t nextId_;
   std::vector<uint32_t> freeIds_;
@@ -393,7 +393,7 @@ struct StaticMetaBase {
 // for threads that use ThreadLocalPtr objects collide on a lock inside
 // StaticMeta; you can specify multiple Tag types to break that lock.
 template <class Tag, class AccessMode>
-struct StaticMeta final : StaticMetaBase {
+struct FOLLY_EXPORT StaticMeta final : StaticMetaBase {
   StaticMeta()
       : StaticMetaBase(
             &StaticMeta::getThreadEntrySlow,
@@ -429,10 +429,7 @@ struct StaticMeta final : StaticMetaBase {
   }
 
   FOLLY_NOINLINE static void getSlowReserveAndCache(
-      EntryID* ent,
-      uint32_t& id,
-      ThreadEntry*& threadEntry,
-      size_t& capacity) {
+      EntryID* ent, uint32_t& id, ThreadEntry*& threadEntry, size_t& capacity) {
     auto& inst = instance();
     threadEntry = inst.threadEntry_();
     if (UNLIKELY(threadEntry->getElementsCapacity() <= id)) {

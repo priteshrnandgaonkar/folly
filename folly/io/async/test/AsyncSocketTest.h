@@ -145,6 +145,10 @@ class ReadCallback : public folly::AsyncTransport::ReadCallback {
   }
 
   void verifyData(const char* expected, size_t expectedLen) const {
+    verifyData((const unsigned char*)expected, expectedLen);
+  }
+
+  void verifyData(const unsigned char* expected, size_t expectedLen) const {
     size_t offset = 0;
     for (size_t idx = 0; idx < buffers.size(); ++idx) {
       const auto& buf = buffers[idx];
@@ -154,6 +158,13 @@ class ReadCallback : public folly::AsyncTransport::ReadCallback {
       offset += cmpLen;
     }
     CHECK_EQ(offset, expectedLen);
+  }
+
+  void clearData() {
+    for (auto& buffer : buffers) {
+      buffer.free();
+    }
+    buffers.clear();
   }
 
   size_t dataRead() const {
@@ -250,8 +261,8 @@ class TestSendMsgParamsCallback
     queriedData_ = false;
   }
 
-  int getFlagsImpl(folly::WriteFlags flags, int /*defaultFlags*/) noexcept
-      override {
+  int getFlagsImpl(
+      folly::WriteFlags flags, int /*defaultFlags*/) noexcept override {
     queriedFlags_ = true;
     if (writeFlags_ == folly::WriteFlags::NONE) {
       writeFlags_ = flags;
@@ -261,7 +272,10 @@ class TestSendMsgParamsCallback
     return flags_;
   }
 
-  void getAncillaryData(folly::WriteFlags flags, void* data) noexcept override {
+  void getAncillaryData(
+      folly::WriteFlags flags,
+      void* data,
+      const bool /* byteEventsEnabled */) noexcept override {
     queriedData_ = true;
     if (writeFlags_ == folly::WriteFlags::NONE) {
       writeFlags_ = flags;
@@ -272,7 +286,9 @@ class TestSendMsgParamsCallback
     memcpy(data, data_, dataSize_);
   }
 
-  uint32_t getAncillaryDataSize(folly::WriteFlags flags) noexcept override {
+  uint32_t getAncillaryDataSize(
+      folly::WriteFlags flags,
+      const bool /* byteEventsEnabled */) noexcept override {
     if (writeFlags_ == folly::WriteFlags::NONE) {
       writeFlags_ = flags;
     } else {
@@ -400,8 +416,7 @@ class TestServer {
   }
 
   std::shared_ptr<folly::AsyncSocket> acceptAsync(
-      folly::EventBase* evb,
-      int timeout = 50) {
+      folly::EventBase* evb, int timeout = 50) {
     auto fd = acceptFD(timeout);
     return folly::AsyncSocket::newSocket(evb, fd);
   }

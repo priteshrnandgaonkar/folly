@@ -20,18 +20,83 @@
 
 namespace folly {
 namespace test {
+
+REGISTER_TYPED_TEST_CASE_P(
+    EventBaseTest,
+    ReadEvent,
+    ReadPersist,
+    ReadImmediate,
+    WriteEvent,
+    WritePersist,
+    WriteImmediate,
+    ReadWrite,
+    WriteRead,
+    ReadWriteSimultaneous,
+    ReadWritePersist,
+    ReadPartial,
+    WritePartial,
+    DestroyingHandler,
+    RunAfterDelay,
+    RunAfterDelayDestruction,
+    BasicTimeouts,
+    ReuseTimeout,
+    RescheduleTimeout,
+    CancelTimeout,
+    DestroyingTimeout,
+    ScheduledFn,
+    ScheduledFnAt,
+    RunInThread,
+    RunInEventBaseThreadAndWait,
+    RunImmediatelyOrRunInEventBaseThreadAndWaitCross,
+    RunImmediatelyOrRunInEventBaseThreadAndWaitWithin,
+    RunImmediatelyOrRunInEventBaseThreadNotLooping,
+    RepeatedRunInLoop,
+    RunInLoopNoTimeMeasurement,
+    RunInLoopStopLoop,
+    messageAvailableException,
+    TryRunningAfterTerminate,
+    CancelRunInLoop,
+    LoopTermination,
+    CallbackOrderTest,
+    AlwaysEnqueueCallbackOrderTest,
+    IdleTime,
+    ThisLoop,
+    EventBaseThreadLoop,
+    EventBaseThreadName,
+    RunBeforeLoop,
+    RunBeforeLoopWait,
+    StopBeforeLoop,
+    RunCallbacksOnDestruction,
+    LoopKeepAlive,
+    LoopKeepAliveInLoop,
+    LoopKeepAliveWithLoopForever,
+    LoopKeepAliveShutdown,
+    LoopKeepAliveAtomic,
+    LoopKeepAliveCast);
+
+REGISTER_TYPED_TEST_CASE_P(
+    EventBaseTest1,
+    DrivableExecutorTest,
+    IOExecutorTest,
+    RequestContextTest,
+    CancelLoopCallbackRequestContextTest,
+    TestStarvation,
+    RunOnDestructionBasic,
+    RunOnDestructionCancelled,
+    RunOnDestructionAfterHandleDestroyed,
+    RunOnDestructionAddCallbackWithinCallback,
+    InternalExternalCallbackOrderTest,
+    pidCheck,
+    EventBaseExecutionObserver);
+
 struct DefaultBackendProvider {
   static std::unique_ptr<folly::EventBaseBackendBase> getBackend() {
     return folly::EventBase::getDefaultBackend();
   }
 };
 INSTANTIATE_TYPED_TEST_CASE_P(
-    EventBaseTest,
-    EventBaseTest,
-    DefaultBackendProvider);
+    EventBaseTest, EventBaseTest, DefaultBackendProvider);
 INSTANTIATE_TYPED_TEST_CASE_P(
-    EventBaseTest1,
-    EventBaseTest1,
-    DefaultBackendProvider);
+    EventBaseTest1, EventBaseTest1, DefaultBackendProvider);
 } // namespace test
 } // namespace folly

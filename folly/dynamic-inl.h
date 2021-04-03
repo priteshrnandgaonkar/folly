@@ -27,6 +27,7 @@
 
 namespace folly {
 namespace detail {
+
 struct DynamicHasher {
   using is_transparent = void;
 
@@ -59,16 +60,14 @@ struct DynamicKeyEqual {
 
   template <typename A>
   std::enable_if_t<std::is_convertible<A, StringPiece>::value, bool> operator()(
-      A const& lhs,
-      dynamic const& rhs) const {
+      A const& lhs, dynamic const& rhs) const {
     return FOLLY_LIKELY(rhs.type() == dynamic::Type::STRING) &&
         std::equal_to<StringPiece>()(lhs, rhs.stringPiece());
   }
 
   template <typename B>
   std::enable_if_t<std::is_convertible<B, StringPiece>::value, bool> operator()(
-      dynamic const& lhs,
-      B const& rhs) const {
+      dynamic const& lhs, B const& rhs) const {
     return FOLLY_LIKELY(lhs.type() == dynamic::Type::STRING) &&
         std::equal_to<StringPiece>()(lhs.stringPiece(), rhs);
   }
@@ -331,16 +330,17 @@ inline dynamic::dynamic(ObjectMaker (*)()) : type_(OBJECT) {
   new (getAddress<ObjectImpl>()) ObjectImpl();
 }
 
-inline dynamic::dynamic(StringPiece s) : type_(STRING) {
-  new (&u_.string) std::string(s.data(), s.size());
-}
-
 inline dynamic::dynamic(char const* s) : type_(STRING) {
   new (&u_.string) std::string(s);
 }
 
 inline dynamic::dynamic(std::string s) : type_(STRING) {
   new (&u_.string) std::string(std::move(s));
+}
+
+template <typename Stringish, typename>
+inline dynamic::dynamic(Stringish&& s) : type_(STRING) {
+  new (&u_.string) std::string(s.data(), s.size());
 }
 
 inline dynamic::dynamic(ObjectMaker&& maker) : type_(OBJECT) {
@@ -537,9 +537,6 @@ inline bool dynamic::getBool() && {
   return get<bool>();
 }
 
-inline const char* dynamic::data() const& {
-  return get<std::string>().data();
-}
 inline const char* dynamic::c_str() const& {
   return get<std::string>().c_str();
 }
@@ -651,8 +648,7 @@ inline dynamic&& dynamic::operator[](StringPiece k) && {
 
 template <typename K>
 dynamic::IfIsNonStringDynamicConvertible<K, dynamic> dynamic::getDefault(
-    K&& k,
-    const dynamic& v) const& {
+    K&& k, const dynamic& v) const& {
   auto& obj = get<ObjectImpl>();
   auto it = obj.find(std::forward<K>(k));
   return it == obj.end() ? v : it->second;
@@ -660,8 +656,7 @@ dynamic::IfIsNonStringDynamicConvertible<K, dynamic> dynamic::getDefault(
 
 template <typename K>
 dynamic::IfIsNonStringDynamicConvertible<K, dynamic> dynamic::getDefault(
-    K&& k,
-    dynamic&& v) const& {
+    K&& k, dynamic&& v) const& {
   auto& obj = get<ObjectImpl>();
   auto it = obj.find(std::forward<K>(k));
   // Avoid clang bug with ternary
@@ -674,8 +669,7 @@ dynamic::IfIsNonStringDynamicConvertible<K, dynamic> dynamic::getDefault(
 
 template <typename K>
 dynamic::IfIsNonStringDynamicConvertible<K, dynamic> dynamic::getDefault(
-    K&& k,
-    const dynamic& v) && {
+    K&& k, const dynamic& v) && {
   auto& obj = get<ObjectImpl>();
   auto it = obj.find(std::forward<K>(k));
   // Avoid clang bug with ternary
@@ -688,8 +682,7 @@ dynamic::IfIsNonStringDynamicConvertible<K, dynamic> dynamic::getDefault(
 
 template <typename K>
 dynamic::IfIsNonStringDynamicConvertible<K, dynamic> dynamic::getDefault(
-    K&& k,
-    dynamic&& v) && {
+    K&& k, dynamic&& v) && {
   auto& obj = get<ObjectImpl>();
   auto it = obj.find(std::forward<K>(k));
   return std::move(it == obj.end() ? v : it->second);
@@ -697,24 +690,21 @@ dynamic::IfIsNonStringDynamicConvertible<K, dynamic> dynamic::getDefault(
 
 template <typename K, typename V>
 dynamic::IfIsNonStringDynamicConvertible<K, dynamic&> dynamic::setDefault(
-    K&& k,
-    V&& v) {
+    K&& k, V&& v) {
   auto& obj = get<ObjectImpl>();
   return obj.emplace(std::forward<K>(k), std::forward<V>(v)).first->second;
 }
 
 template <typename K>
 dynamic::IfIsNonStringDynamicConvertible<K, dynamic&> dynamic::setDefault(
-    K&& k,
-    dynamic&& v) {
+    K&& k, dynamic&& v) {
   auto& obj = get<ObjectImpl>();
   return obj.emplace(std::forward<K>(k), std::move(v)).first->second;
 }
 
 template <typename K>
 dynamic::IfIsNonStringDynamicConvertible<K, dynamic&> dynamic::setDefault(
-    K&& k,
-    const dynamic& v) {
+    K&& k, const dynamic& v) {
   auto& obj = get<ObjectImpl>();
   return obj.emplace(std::forward<K>(k), v).first->second;
 }
@@ -897,8 +887,7 @@ inline void dynamic::merge_patch(const dynamic& patch) {
 }
 
 inline dynamic dynamic::merge(
-    const dynamic& mergeObj1,
-    const dynamic& mergeObj2) {
+    const dynamic& mergeObj1, const dynamic& mergeObj2) {
   // No checks on type needed here because they are done in update_missing
   // Note that we do update_missing here instead of update() because
   // it will prevent the extra writes that would occur with update()
@@ -931,8 +920,7 @@ inline dynamic::const_key_iterator dynamic::erase(const_key_iterator it) {
 }
 
 inline dynamic::const_key_iterator dynamic::erase(
-    const_key_iterator first,
-    const_key_iterator last) {
+    const_key_iterator first, const_key_iterator last) {
   return const_key_iterator(get<ObjectImpl>().erase(first.base(), last.base()));
 }
 
@@ -941,8 +929,7 @@ inline dynamic::value_iterator dynamic::erase(const_value_iterator it) {
 }
 
 inline dynamic::value_iterator dynamic::erase(
-    const_value_iterator first,
-    const_value_iterator last) {
+    const_value_iterator first, const_value_iterator last) {
   return value_iterator(get<ObjectImpl>().erase(first.base(), last.base()));
 }
 
@@ -951,8 +938,7 @@ inline dynamic::item_iterator dynamic::erase(const_item_iterator it) {
 }
 
 inline dynamic::item_iterator dynamic::erase(
-    const_item_iterator first,
-    const_item_iterator last) {
+    const_item_iterator first, const_item_iterator last) {
   return item_iterator(get<ObjectImpl>().erase(first.base(), last.base()));
 }
 
@@ -1118,22 +1104,22 @@ struct dynamic::PrintImpl {
 // Otherwise, null, being (void*)0, would print as 0.
 template <>
 struct dynamic::PrintImpl<std::nullptr_t> {
-  static void
-  print(dynamic const& /* d */, std::ostream& out, std::nullptr_t const&) {
+  static void print(
+      dynamic const& /* d */, std::ostream& out, std::nullptr_t const&) {
     out << "null";
   }
 };
 template <>
 struct dynamic::PrintImpl<dynamic::ObjectImpl> {
-  static void
-  print(dynamic const& d, std::ostream& out, dynamic::ObjectImpl const&) {
+  static void print(
+      dynamic const& d, std::ostream& out, dynamic::ObjectImpl const&) {
     d.print_as_pseudo_json(out);
   }
 };
 template <>
 struct dynamic::PrintImpl<dynamic::Array> {
-  static void
-  print(dynamic const& d, std::ostream& out, dynamic::Array const&) {
+  static void print(
+      dynamic const& d, std::ostream& out, dynamic::Array const&) {
     d.print_as_pseudo_json(out);
   }
 };
@@ -1147,6 +1133,166 @@ inline void dynamic::print(std::ostream& out) const {
 inline std::ostream& operator<<(std::ostream& out, dynamic const& d) {
   d.print(out);
   return out;
+}
+
+//////////////////////////////////////////////////////////////////////
+
+inline const_dynamic_view::const_dynamic_view(dynamic const& d) noexcept
+    : d_(&d) {}
+
+inline const_dynamic_view::const_dynamic_view(dynamic const* d) noexcept
+    : d_(d) {}
+
+inline const_dynamic_view::operator bool() const noexcept {
+  return !empty();
+}
+
+inline bool const_dynamic_view::empty() const noexcept {
+  return d_ == nullptr;
+}
+
+inline void const_dynamic_view::reset() noexcept {
+  d_ = nullptr;
+}
+
+template <typename Key, typename... Keys>
+inline const_dynamic_view const_dynamic_view::descend(
+    Key const& key, Keys const&... keys) const noexcept {
+  return descend_(key, keys...);
+}
+
+template <typename Key1, typename Key2, typename... Keys>
+inline dynamic const* const_dynamic_view::descend_(
+    Key1 const& key1, Key2 const& key2, Keys const&... keys) const noexcept {
+  if (!d_) {
+    return nullptr;
+  }
+  return const_dynamic_view{descend_unchecked_(key1)}.descend_(key2, keys...);
+}
+
+template <typename Key>
+inline dynamic const* const_dynamic_view::descend_(
+    Key const& key) const noexcept {
+  if (!d_) {
+    return nullptr;
+  }
+  return descend_unchecked_(key);
+}
+
+template <typename Key>
+inline dynamic::IfIsNonStringDynamicConvertible<Key, dynamic const*>
+const_dynamic_view::descend_unchecked_(Key const& key) const noexcept {
+  if (auto* parray = d_->get_nothrow<dynamic::Array>()) {
+    if /* constexpr */ (!std::is_integral<Key>::value) {
+      return nullptr;
+    }
+    if (key < 0 || key >= parray->size()) {
+      return nullptr;
+    }
+    return &(*parray)[size_t(key)];
+  } else if (auto* pobject = d_->get_nothrow<dynamic::ObjectImpl>()) {
+    auto it = pobject->find(key);
+    if (it == pobject->end()) {
+      return nullptr;
+    }
+    return &it->second;
+  }
+  return nullptr;
+}
+
+inline dynamic const* const_dynamic_view::descend_unchecked_(
+    folly::StringPiece key) const noexcept {
+  if (auto* pobject = d_->get_nothrow<dynamic::ObjectImpl>()) {
+    auto it = pobject->find(key);
+    if (it == pobject->end()) {
+      return nullptr;
+    }
+    return &it->second;
+  }
+  return nullptr;
+}
+
+inline dynamic const_dynamic_view::value_or(dynamic&& val) const {
+  if (d_) {
+    return *d_;
+  }
+  return std::move(val);
+}
+
+template <typename T, typename... Args>
+inline T const_dynamic_view::get_copy(Args&&... args) const {
+  if (auto* v = (d_ ? d_->get_nothrow<T>() : nullptr)) {
+    return *v;
+  }
+  return T(std::forward<Args>(args)...);
+}
+
+inline std::string const_dynamic_view::string_or(char const* val) const {
+  return get_copy<std::string>(val);
+}
+
+inline std::string const_dynamic_view::string_or(std::string val) const {
+  return get_copy<std::string>(std::move(val));
+}
+
+// Specialized version for StringPiece, FixedString, and other types which are
+// not convertible to std::string, but can construct one from .data and .size
+// to std::string. Will not trigger a copy unless data and size require it.
+template <typename Stringish, typename>
+inline std::string const_dynamic_view::string_or(Stringish&& val) const {
+  return get_copy(val.data(), val.size());
+}
+
+inline double const_dynamic_view::double_or(double val) const noexcept {
+  return get_copy<double>(val);
+}
+
+inline int64_t const_dynamic_view::int_or(int64_t val) const noexcept {
+  return get_copy<int64_t>(val);
+}
+
+inline bool const_dynamic_view::bool_or(bool val) const noexcept {
+  return get_copy<bool>(val);
+}
+
+inline dynamic_view::dynamic_view(dynamic& d) noexcept
+    : const_dynamic_view(d) {}
+
+template <typename Key, typename... Keys>
+inline dynamic_view dynamic_view::descend(
+    Key const& key, Keys const&... keys) const noexcept {
+  if (auto* child = const_dynamic_view::descend_(key, keys...)) {
+    return *const_cast<dynamic*>(child);
+  }
+  return {};
+}
+
+inline dynamic dynamic_view::move_value_or(dynamic&& val) noexcept {
+  if (d_) {
+    return std::move(*const_cast<dynamic*>(d_));
+  }
+  return std::move(val);
+}
+
+template <typename T, typename... Args>
+inline T dynamic_view::get_move(Args&&... args) {
+  if (auto* v = (d_ ? const_cast<dynamic*>(d_)->get_nothrow<T>() : nullptr)) {
+    return std::move(*v);
+  }
+  return T(std::forward<Args>(args)...);
+}
+
+inline std::string dynamic_view::move_string_or(char const* val) {
+  return get_move<std::string>(val);
+}
+
+inline std::string dynamic_view::move_string_or(std::string val) noexcept {
+  return get_move<std::string>(std::move(val));
+}
+
+template <typename Stringish, typename>
+inline std::string dynamic_view::move_string_or(Stringish&& val) {
+  return get_move<std::string>(val.begin(), val.end());
 }
 
 //////////////////////////////////////////////////////////////////////

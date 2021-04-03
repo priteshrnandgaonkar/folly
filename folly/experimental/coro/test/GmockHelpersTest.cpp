@@ -19,8 +19,8 @@
 #include <vector>
 
 #include <folly/Portability.h>
+
 #include <gtest/gtest-death-test.h>
-#if FOLLY_HAS_COROUTINES
 
 #include <folly/experimental/coro/GmockHelpers.h>
 
@@ -29,6 +29,8 @@
 
 #include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
+
+#if FOLLY_HAS_COROUTINES
 
 using namespace ::testing;
 using namespace folly::coro::gmock_helpers;
@@ -69,6 +71,29 @@ TEST(CoroGTestHelpers, CoInvokeAvoidsDanglingReferences) {
 
   auto ret2 = folly::coro::blockingWait(mock.getValues());
   EXPECT_EQ(ret2, values);
+}
+
+TEST(CoroGTestHelpers, CoInvokeWithoutArgsTest) {
+  MockFoo mock;
+  int numCalls = 0;
+
+  EXPECT_CALL(mock, getString())
+      .WillRepeatedly(
+          CoInvokeWithoutArgs([&numCalls]() -> folly::coro::Task<std::string> {
+            if (numCalls++ == 0) {
+              co_return "123";
+            } else {
+              co_return "abc";
+            }
+          }));
+
+  auto ret = folly::coro::blockingWait(mock.getString());
+  EXPECT_EQ(ret, "123");
+  EXPECT_EQ(numCalls, 1);
+
+  ret = folly::coro::blockingWait(mock.getString());
+  EXPECT_EQ(ret, "abc");
+  EXPECT_EQ(numCalls, 2);
 }
 
 TEST(CoroGTestHelpers, CoReturnTest) {

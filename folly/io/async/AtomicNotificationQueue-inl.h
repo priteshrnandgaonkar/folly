@@ -100,9 +100,9 @@ AtomicNotificationQueue<Task>::AtomicQueue::~AtomicQueue() {
 }
 
 template <typename Task>
-template <typename T>
-bool AtomicNotificationQueue<Task>::AtomicQueue::push(T&& value) {
-  std::unique_ptr<Node> node(new Node(std::forward<T>(value)));
+template <typename... Args>
+bool AtomicNotificationQueue<Task>::AtomicQueue::push(Args&&... args) {
+  std::unique_ptr<Node> node(new Node(std::forward<Args>(args)...));
   auto head = head_.load(std::memory_order_relaxed);
   while (true) {
     node->next =
@@ -191,16 +191,15 @@ bool AtomicNotificationQueue<Task>::arm() {
 }
 
 template <typename Task>
-template <typename T>
-bool AtomicNotificationQueue<Task>::push(T&& task) {
+template <typename... Args>
+bool AtomicNotificationQueue<Task>::push(Args&&... args) {
   pushCount_.fetch_add(1, std::memory_order_relaxed);
-  return atomicQueue_.push(std::forward<T>(task));
+  return atomicQueue_.push(std::forward<Args>(args)...);
 }
 
 template <typename Task>
-template <typename T>
 typename AtomicNotificationQueue<Task>::TryPushResult
-AtomicNotificationQueue<Task>::tryPush(T&& task, uint32_t maxSize) {
+AtomicNotificationQueue<Task>::tryPush(Task&& task, uint32_t maxSize) {
   auto pushed = pushCount_.load(std::memory_order_relaxed);
   while (true) {
     auto executed = taskExecuteCount_.load(std::memory_order_relaxed);
@@ -215,9 +214,8 @@ AtomicNotificationQueue<Task>::tryPush(T&& task, uint32_t maxSize) {
       break;
     }
   }
-  return atomicQueue_.push(std::forward<T>(task))
-      ? TryPushResult::SUCCESS_AND_ARMED
-      : TryPushResult::SUCCESS;
+  return atomicQueue_.push(std::move(task)) ? TryPushResult::SUCCESS_AND_ARMED
+                                            : TryPushResult::SUCCESS;
 }
 
 namespace detail {
@@ -228,9 +226,7 @@ template <
         invoke_result_t<Consumer, Task&&>,
         AtomicNotificationQueueTaskStatus>::value>>
 AtomicNotificationQueueTaskStatus invokeConsumerWithTask(
-    Consumer&& consumer,
-    Task&& task,
-    std::shared_ptr<RequestContext>&& rctx) {
+    Consumer&& consumer, Task&& task, std::shared_ptr<RequestContext>&& rctx) {
   RequestContextScopeGuard rcsg(std::move(rctx));
   return consumer(std::forward<Task>(task));
 }
@@ -243,9 +239,7 @@ template <
         AtomicNotificationQueueTaskStatus>::value>,
     typename = void>
 AtomicNotificationQueueTaskStatus invokeConsumerWithTask(
-    Consumer&& consumer,
-    Task&& task,
-    std::shared_ptr<RequestContext>&& rctx) {
+    Consumer&& consumer, Task&& task, std::shared_ptr<RequestContext>&& rctx) {
   return consumer(
       std::forward<Task>(task),
       std::forward<std::shared_ptr<RequestContext>>(rctx));
@@ -259,9 +253,7 @@ template <
     typename = void,
     typename = void>
 AtomicNotificationQueueTaskStatus invokeConsumerWithTask(
-    Consumer&& consumer,
-    Task&& task,
-    std::shared_ptr<RequestContext>&& rctx) {
+    Consumer&& consumer, Task&& task, std::shared_ptr<RequestContext>&& rctx) {
   RequestContextScopeGuard rcsg(std::move(rctx));
   consumer(std::forward<Task>(task));
   return AtomicNotificationQueueTaskStatus::CONSUMED;
@@ -277,9 +269,7 @@ template <
     typename = void,
     typename = void>
 AtomicNotificationQueueTaskStatus invokeConsumerWithTask(
-    Consumer&& consumer,
-    Task&& task,
-    std::shared_ptr<RequestContext>&& rctx) {
+    Consumer&& consumer, Task&& task, std::shared_ptr<RequestContext>&& rctx) {
   consumer(
       std::forward<Task>(task),
       std::forward<std::shared_ptr<RequestContext>>(rctx));

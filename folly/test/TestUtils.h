@@ -31,6 +31,7 @@
 
 #include <chrono>
 #include <regex>
+#include <string_view>
 #include <system_error>
 #include <type_traits>
 
@@ -157,8 +158,8 @@ namespace folly {
 namespace test {
 
 template <typename T1, typename T2>
-::testing::AssertionResult
-AreWithinSecs(T1 val1, T2 val2, std::chrono::seconds acceptableDeltaSecs) {
+::testing::AssertionResult AreWithinSecs(
+    T1 val1, T2 val2, std::chrono::seconds acceptableDeltaSecs) {
   auto deltaSecs =
       std::chrono::duration_cast<std::chrono::seconds>(val1 - val2);
   if (deltaSecs <= acceptableDeltaSecs &&
@@ -211,7 +212,8 @@ class CheckResult {
  * Helper function for implementing EXPECT_THROW
  */
 template <typename Fn>
-CheckResult checkThrowErrno(Fn&& fn, int errnoValue, const char* statementStr) {
+CheckResult checkThrowErrno(
+    Fn&& fn, int errnoValue, std::string_view statementStr) {
   try {
     fn();
   } catch (const std::system_error& ex) {
@@ -259,9 +261,9 @@ CheckResult checkThrowErrno(Fn&& fn, int errnoValue, const char* statementStr) {
 template <typename ExType, typename Fn>
 CheckResult checkThrowRegex(
     Fn&& fn,
-    const char* pattern,
-    const char* statementStr,
-    const char* excTypeStr) {
+    std::string_view pattern,
+    std::string_view statementStr,
+    std::string_view excTypeStr) {
   static_assert(
       std::is_base_of<std::exception, ExType>::value,
       "EXPECT_THROW_RE() exception type must derive from std::exception");
@@ -277,7 +279,7 @@ CheckResult checkThrowRegex(
           << exceptionStr(ex);
     }
 
-    std::regex re(pattern);
+    std::regex re(pattern.data(), pattern.size());
     if (!std::regex_search(derived->what(), re)) {
       return CheckResult(false)
           << "Expected: " << statementStr << " throws a " << excTypeStr
@@ -311,16 +313,14 @@ inline void PrintTo(StringPiece const& stringPiece, std::ostream* out) {
 }
 
 inline void PrintTo(
-    Range<wchar_t const*> const& stringPiece,
-    std::ostream* out) {
+    Range<wchar_t const*> const& stringPiece, std::ostream* out) {
   *out << ::testing::PrintToString(
       std::wstring(stringPiece.begin(), stringPiece.size()));
 }
 
 template <typename CharT, size_t N>
 void PrintTo(
-    BasicFixedString<CharT, N> const& someFixedString,
-    std::ostream* out) {
+    BasicFixedString<CharT, N> const& someFixedString, std::ostream* out) {
   *out << ::testing::PrintToString(someFixedString.toStdString());
 }
 

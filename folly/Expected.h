@@ -88,6 +88,8 @@ using ExpectedErrorType =
 namespace expected_detail {
 
 template <typename Value, typename Error>
+struct Promise;
+template <typename Value, typename Error>
 struct PromiseReturn;
 
 template <template <class...> class Trait, class... Ts>
@@ -676,16 +678,14 @@ class Unexpected final {
 template <
     class Error FOLLY_REQUIRES_TRAILING(IsEqualityComparable<Error>::value)>
 inline bool operator==(
-    const Unexpected<Error>& lhs,
-    const Unexpected<Error>& rhs) {
+    const Unexpected<Error>& lhs, const Unexpected<Error>& rhs) {
   return lhs.error() == rhs.error();
 }
 
 template <
     class Error FOLLY_REQUIRES_TRAILING(IsEqualityComparable<Error>::value)>
 inline bool operator!=(
-    const Unexpected<Error>& lhs,
-    const Unexpected<Error>& rhs) {
+    const Unexpected<Error>& lhs, const Unexpected<Error>& rhs) {
   return !(lhs == rhs);
 }
 
@@ -822,6 +822,8 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
 
   template <class U>
   using rebind = Expected<U, Error>;
+
+  using promise_type = expected_detail::Promise<Value, Error>;
 
   static_assert(
       !std::is_reference<Value>::value,
@@ -1103,8 +1105,7 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   template <class... Fns FOLLY_REQUIRES_TRAILING(sizeof...(Fns) >= 1)>
   auto then(Fns&&... fns) const& -> decltype(
       expected_detail::ExpectedHelper::then_(
-          std::declval<const Base&>(),
-          std::declval<Fns>()...)) {
+          std::declval<const Base&>(), std::declval<Fns>()...)) {
     if (this->uninitializedByException()) {
       throw_exception<BadExpectedAccess>();
     }
@@ -1114,8 +1115,7 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
 
   template <class... Fns FOLLY_REQUIRES_TRAILING(sizeof...(Fns) >= 1)>
   auto then(Fns&&... fns) & -> decltype(expected_detail::ExpectedHelper::then_(
-      std::declval<Base&>(),
-      std::declval<Fns>()...)) {
+      std::declval<Base&>(), std::declval<Fns>()...)) {
     if (this->uninitializedByException()) {
       throw_exception<BadExpectedAccess>();
     }
@@ -1125,8 +1125,7 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
 
   template <class... Fns FOLLY_REQUIRES_TRAILING(sizeof...(Fns) >= 1)>
   auto then(Fns&&... fns) && -> decltype(expected_detail::ExpectedHelper::then_(
-      std::declval<Base&&>(),
-      std::declval<Fns>()...)) {
+      std::declval<Base&&>(), std::declval<Fns>()...)) {
     if (this->uninitializedByException()) {
       throw_exception<BadExpectedAccess>();
     }
@@ -1193,8 +1192,7 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
 template <class Value, class Error>
 inline typename std::enable_if<IsEqualityComparable<Value>::value, bool>::type
 operator==(
-    const Expected<Value, Error>& lhs,
-    const Expected<Value, Error>& rhs) {
+    const Expected<Value, Error>& lhs, const Expected<Value, Error>& rhs) {
   if (UNLIKELY(lhs.uninitializedByException())) {
     throw_exception<BadExpectedAccess>();
   }
@@ -1211,16 +1209,14 @@ template <
     class Value,
     class Error FOLLY_REQUIRES_TRAILING(IsEqualityComparable<Value>::value)>
 inline bool operator!=(
-    const Expected<Value, Error>& lhs,
-    const Expected<Value, Error>& rhs) {
+    const Expected<Value, Error>& lhs, const Expected<Value, Error>& rhs) {
   return !(rhs == lhs);
 }
 
 template <class Value, class Error>
 inline typename std::enable_if<IsLessThanComparable<Value>::value, bool>::type
 operator<(
-    const Expected<Value, Error>& lhs,
-    const Expected<Value, Error>& rhs) {
+    const Expected<Value, Error>& lhs, const Expected<Value, Error>& rhs) {
   if (UNLIKELY(
           lhs.uninitializedByException() || rhs.uninitializedByException())) {
     throw_exception<BadExpectedAccess>();
@@ -1238,8 +1234,7 @@ template <
     class Value,
     class Error FOLLY_REQUIRES_TRAILING(IsLessThanComparable<Value>::value)>
 inline bool operator<=(
-    const Expected<Value, Error>& lhs,
-    const Expected<Value, Error>& rhs) {
+    const Expected<Value, Error>& lhs, const Expected<Value, Error>& rhs) {
   return !(rhs < lhs);
 }
 
@@ -1247,8 +1242,7 @@ template <
     class Value,
     class Error FOLLY_REQUIRES_TRAILING(IsLessThanComparable<Value>::value)>
 inline bool operator>(
-    const Expected<Value, Error>& lhs,
-    const Expected<Value, Error>& rhs) {
+    const Expected<Value, Error>& lhs, const Expected<Value, Error>& rhs) {
   return rhs < lhs;
 }
 
@@ -1256,8 +1250,7 @@ template <
     class Value,
     class Error FOLLY_REQUIRES_TRAILING(IsLessThanComparable<Value>::value)>
 inline bool operator>=(
-    const Expected<Value, Error>& lhs,
-    const Expected<Value, Error>& rhs) {
+    const Expected<Value, Error>& lhs, const Expected<Value, Error>& rhs) {
   return !(lhs < rhs);
 }
 
@@ -1331,7 +1324,7 @@ bool operator>(const Value& other, const Expected<Value, Error>&) = delete;
 // Enable the use of folly::Expected with `co_await`
 // Inspired by https://github.com/toby-allsopp/coroutine_monad
 #if FOLLY_HAS_COROUTINES
-#include <experimental/coroutine>
+#include <folly/experimental/coro/Coroutine.h>
 
 namespace folly {
 namespace expected_detail {
@@ -1364,11 +1357,9 @@ struct Promise {
   // or:
   //    auto retobj = p.get_return_object(); // clang
   PromiseReturn<Value, Error> get_return_object() noexcept { return *this; }
-  std::experimental::suspend_never initial_suspend() const noexcept {
-    return {};
-  }
-  std::experimental::suspend_never final_suspend() const noexcept { return {}; }
-  template <typename U>
+  coro::suspend_never initial_suspend() const noexcept { return {}; }
+  coro::suspend_never final_suspend() const noexcept { return {}; }
+  template <typename U = Value>
   void return_value(U&& u) {
     value_->emplace(static_cast<U&&>(u));
   }
@@ -1390,7 +1381,7 @@ struct Awaitable {
 
   // Explicitly only allow suspension into a Promise
   template <typename U>
-  void await_suspend(std::experimental::coroutine_handle<Promise<U, Error>> h) {
+  void await_suspend(coro::coroutine_handle<Promise<U, Error>> h) {
     *h.promise().value_ = makeUnexpected(std::move(o_.error()));
     // Abort the rest of the coroutine. resume() is not going to be called
     h.destroy();
@@ -1404,14 +1395,4 @@ expected_detail::Awaitable<Value, Error>
   return expected_detail::Awaitable<Value, Error>{std::move(o)};
 }
 } // namespace folly
-
-// This makes folly::Expected<Value> useable as a coroutine return type...
-namespace std {
-namespace experimental {
-template <typename Value, typename Error, typename... Args>
-struct coroutine_traits<folly::Expected<Value, Error>, Args...> {
-  using promise_type = folly::expected_detail::Promise<Value, Error>;
-};
-} // namespace experimental
-} // namespace std
 #endif // FOLLY_HAS_COROUTINES

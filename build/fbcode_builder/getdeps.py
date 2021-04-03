@@ -401,6 +401,27 @@ class CleanCmd(SubCmd):
         clean_dirs(opts)
 
 
+@cmd("show-build-dir", "print the build dir for a given project")
+class ShowBuildDirCmd(ProjectCmdBase):
+    def run_project_cmd(self, args, loader, manifest):
+        if args.recursive:
+            manifests = loader.manifests_in_dependency_order()
+        else:
+            manifests = [manifest]
+
+        for m in manifests:
+            inst_dir = loader.get_project_build_dir(m)
+            print(inst_dir)
+
+    def setup_project_cmd_parser(self, parser):
+        parser.add_argument(
+            "--recursive",
+            help="print the transitive deps also",
+            action="store_true",
+            default=False,
+        )
+
+
 @cmd("show-inst-dir", "print the installation dir for a given project")
 class ShowInstDirCmd(ProjectCmdBase):
     def run_project_cmd(self, args, loader, manifest):
@@ -830,8 +851,6 @@ jobs:
             )
 
             getdeps = f"{py3} build/fbcode_builder/getdeps.py"
-            if not args.disallow_system_packages:
-                getdeps += " --allow-system-packages"
 
             out.write("  build:\n")
             out.write("    runs-on: %s\n" % runs_on)
@@ -857,11 +876,6 @@ jobs:
                 # that we want it to use them!
                 out.write("    - name: Fix Git config\n")
                 out.write("      run: git config --system core.longpaths true\n")
-            elif not args.disallow_system_packages:
-                out.write("    - name: Install system deps\n")
-                out.write(
-                    f"      run: sudo {getdeps} install-system-deps --recursive {manifest.name}\n"
-                )
 
             projects = loader.manifests_in_dependency_order()
 

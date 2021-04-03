@@ -58,8 +58,7 @@ const uint32_t AsyncServerSocket::kDefaultCallbackAcceptAtOnce;
 const uint32_t AsyncServerSocket::kDefaultMaxMessagesInQueue;
 
 void AsyncServerSocket::RemoteAcceptor::start(
-    EventBase* eventBase,
-    uint32_t maxAtOnce) {
+    EventBase* eventBase, uint32_t maxAtOnce) {
   queue_.setMaxReadAtOnce(maxAtOnce);
 
   eventBase->runInEventBaseThread([=]() {
@@ -69,8 +68,7 @@ void AsyncServerSocket::RemoteAcceptor::start(
 }
 
 void AsyncServerSocket::RemoteAcceptor::stop(
-    EventBase* eventBase,
-    AcceptCallback* callback) {
+    EventBase* eventBase, AcceptCallback* callback) {
   eventBase->runInEventBaseThread([=]() {
     callback->acceptStopped();
     delete this;
@@ -98,16 +96,16 @@ AsyncServerSocket::RemoteAcceptor::Consumer::operator()(
       break;
     }
     case MessageType::MSG_ERROR: {
-      std::runtime_error ex(msg.msg);
-      acceptor_.callback_->acceptError(ex);
+      auto ex = make_exception_wrapper<std::runtime_error>(msg.msg);
+      acceptor_.callback_->acceptError(std::move(ex));
       break;
     }
     default: {
       LOG(ERROR) << "invalid accept notification message type "
                  << int(msg.type);
-      std::runtime_error ex(
+      auto ex = make_exception_wrapper<std::runtime_error>(
           "received invalid accept notification message type");
-      acceptor_.callback_->acceptError(ex);
+      acceptor_.callback_->acceptError(std::move(ex));
     }
   }
   return AtomicNotificationQueueTaskStatus::CONSUMED;
@@ -302,9 +300,7 @@ void AsyncServerSocket::useExistingSocket(NetworkSocket fd) {
 }
 
 void AsyncServerSocket::bindSocket(
-    NetworkSocket fd,
-    const SocketAddress& address,
-    bool isExistingSocket) {
+    NetworkSocket fd, const SocketAddress& address, bool isExistingSocket) {
   sockaddr_storage addrStorage;
   address.getAddress(&addrStorage);
   auto saddr = reinterpret_cast<sockaddr*>(&addrStorage);
@@ -381,8 +377,7 @@ void AsyncServerSocket::bind(const SocketAddress& address) {
 }
 
 void AsyncServerSocket::bind(
-    const std::vector<IPAddress>& ipAddresses,
-    uint16_t port) {
+    const std::vector<IPAddress>& ipAddresses, uint16_t port) {
   if (ipAddresses.empty()) {
     throw std::invalid_argument("No ip addresses were provided");
   }
@@ -566,9 +561,7 @@ std::vector<SocketAddress> AsyncServerSocket::getAddresses() const {
 }
 
 void AsyncServerSocket::addAcceptCallback(
-    AcceptCallback* callback,
-    EventBase* eventBase,
-    uint32_t maxAtOnce) {
+    AcceptCallback* callback, EventBase* eventBase, uint32_t maxAtOnce) {
   if (eventBase_) {
     eventBase_->dcheckIsInEventBaseThread();
   }
@@ -616,8 +609,7 @@ void AsyncServerSocket::addAcceptCallback(
 }
 
 void AsyncServerSocket::removeAcceptCallback(
-    AcceptCallback* callback,
-    EventBase* eventBase) {
+    AcceptCallback* callback, EventBase* eventBase) {
   if (eventBase_) {
     eventBase_->dcheckIsInEventBaseThread();
   }
@@ -1005,8 +997,7 @@ void AsyncServerSocket::handlerReady(
 }
 
 void AsyncServerSocket::dispatchSocket(
-    NetworkSocket socket,
-    SocketAddress&& address) {
+    NetworkSocket socket, SocketAddress&& address) {
   uint32_t startingIndex = callbackIndex_;
 
   // Short circuit if the callback is in the primary EventBase thread
@@ -1085,9 +1076,9 @@ void AsyncServerSocket::dispatchError(const char* msgstr, int errnoValue) {
   while (true) {
     // Short circuit if the callback is in the primary EventBase thread
     if (info->eventBase == nullptr || info->eventBase == this->eventBase_) {
-      std::runtime_error ex(
+      auto ex = make_exception_wrapper<std::runtime_error>(
           std::string(msgstr) + folly::to<std::string>(errnoValue));
-      info->callback->acceptError(ex);
+      info->callback->acceptError(std::move(ex));
       return;
     }
 

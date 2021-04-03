@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <folly/experimental/coro/Coroutine.h>
 #include <folly/experimental/coro/Traits.h>
 #include <folly/experimental/coro/WithAsyncStack.h>
 #include <folly/tracing/AsyncStack.h>
@@ -24,8 +25,9 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <experimental/coroutine>
 #include <utility>
+
+#if FOLLY_HAS_COROUTINES
 
 namespace folly {
 namespace coro {
@@ -61,7 +63,7 @@ class Barrier {
     return count_.load(std::memory_order_acquire);
   }
 
-  [[nodiscard]] std::experimental::coroutine_handle<> arrive(
+  [[nodiscard]] coroutine_handle<> arrive(
       folly::AsyncStackFrame& currentFrame) noexcept {
     auto& stackRoot = *currentFrame.getStackRoot();
     folly::deactivateAsyncStackFrame(currentFrame);
@@ -78,11 +80,11 @@ class Barrier {
       }
       return std::exchange(continuation_, {});
     } else {
-      return std::experimental::noop_coroutine();
+      return coro::noop_coroutine();
     }
   }
 
-  [[nodiscard]] std::experimental::coroutine_handle<> arrive() noexcept {
+  [[nodiscard]] coroutine_handle<> arrive() noexcept {
     const std::size_t oldCount = count_.fetch_sub(1, std::memory_order_acq_rel);
 
     // Invalid to call arrive() if you haven't previously incremented the
@@ -93,12 +95,12 @@ class Barrier {
       auto coro = std::exchange(continuation_, {});
       if (asyncFrame_ != nullptr) {
         folly::resumeCoroutineWithNewAsyncStackRoot(coro, *asyncFrame_);
-        return std::experimental::noop_coroutine();
+        return coro::noop_coroutine();
       } else {
         return coro;
       }
     } else {
-      return std::experimental::noop_coroutine();
+      return coro::noop_coroutine();
     }
   }
 
@@ -110,8 +112,8 @@ class Barrier {
     bool await_ready() { return false; }
 
     template <typename Promise>
-    std::experimental::coroutine_handle<> await_suspend(
-        std::experimental::coroutine_handle<Promise> continuation) noexcept {
+    coroutine_handle<> await_suspend(
+        coroutine_handle<Promise> continuation) noexcept {
       if constexpr (detail::promiseHasAsyncFrame_v<Promise>) {
         barrier_.setContinuation(
             continuation, &continuation.promise().getAsyncFrame());
@@ -126,8 +128,7 @@ class Barrier {
 
    private:
     friend Awaiter tag_invoke(
-        cpo_t<co_withAsyncStack>,
-        Awaiter&& awaiter) noexcept {
+        cpo_t<co_withAsyncStack>, Awaiter&& awaiter) noexcept {
       return Awaiter{awaiter.barrier_};
     }
 
@@ -138,7 +139,7 @@ class Barrier {
   auto arriveAndWait() noexcept { return Awaiter{*this}; }
 
   void setContinuation(
-      std::experimental::coroutine_handle<> continuation,
+      coroutine_handle<> continuation,
       folly::AsyncStackFrame* parentFrame) noexcept {
     assert(!continuation_);
     continuation_ = continuation;
@@ -147,10 +148,12 @@ class Barrier {
 
  private:
   std::atomic<std::size_t> count_;
-  std::experimental::coroutine_handle<> continuation_;
+  coroutine_handle<> continuation_;
   folly::AsyncStackFrame* asyncFrame_ = nullptr;
 };
 
 } // namespace detail
 } // namespace coro
 } // namespace folly
+
+#endif // FOLLY_HAS_COROUTINES

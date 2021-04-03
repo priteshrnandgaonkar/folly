@@ -24,6 +24,7 @@
 #include <memory>
 #include <vector>
 
+#include <folly/ExceptionWrapper.h>
 #include <folly/SocketAddress.h>
 #include <folly/String.h>
 #include <folly/experimental/observer/Observer.h>
@@ -88,8 +89,7 @@ class AsyncServerSocket : public DelayedDestruction, public AsyncSocketBase {
      * is accepted using the system accept()/accept4() APIs.
      */
     virtual void onConnectionAccepted(
-        const NetworkSocket socket,
-        const SocketAddress& addr) noexcept = 0;
+        const NetworkSocket socket, const SocketAddress& addr) noexcept = 0;
 
     /**
      * onConnectionAcceptError() is called when an error occurred accepting
@@ -102,24 +102,21 @@ class AsyncServerSocket : public DelayedDestruction, public AsyncSocketBase {
      * probably because of some error encountered.
      */
     virtual void onConnectionDropped(
-        const NetworkSocket socket,
-        const SocketAddress& addr) noexcept = 0;
+        const NetworkSocket socket, const SocketAddress& addr) noexcept = 0;
 
     /**
      * onConnectionEnqueuedForAcceptorCallback() is called when the
      * connection is successfully enqueued for an AcceptCallback to pick up.
      */
     virtual void onConnectionEnqueuedForAcceptorCallback(
-        const NetworkSocket socket,
-        const SocketAddress& addr) noexcept = 0;
+        const NetworkSocket socket, const SocketAddress& addr) noexcept = 0;
 
     /**
      * onConnectionDequeuedByAcceptorCallback() is called when the
      * connection is successfully dequeued by an AcceptCallback.
      */
     virtual void onConnectionDequeuedByAcceptorCallback(
-        const NetworkSocket socket,
-        const SocketAddress& addr) noexcept = 0;
+        const NetworkSocket socket, const SocketAddress& addr) noexcept = 0;
 
     /**
      * onBackoffStarted is called when the socket has successfully started
@@ -161,8 +158,7 @@ class AsyncServerSocket : public DelayedDestruction, public AsyncSocketBase {
      *                    remain valid until connectionAccepted() returns.
      */
     virtual void connectionAccepted(
-        NetworkSocket fd,
-        const SocketAddress& clientAddr) noexcept = 0;
+        NetworkSocket fd, const SocketAddress& clientAddr) noexcept = 0;
 
     /**
      * acceptError() is called if an error occurs while accepting.
@@ -174,7 +170,19 @@ class AsyncServerSocket : public DelayedDestruction, public AsyncSocketBase {
      *
      * @param ex  An exception representing the error.
      */
-    virtual void acceptError(const std::exception& ex) noexcept = 0;
+
+    // TODO(T81599451): Remove the acceptError(const std::exception&)
+    // after migration and remove compile warning supression.
+    FOLLY_PUSH_WARNING
+    FOLLY_GNU_DISABLE_WARNING("-Woverloaded-virtual")
+    virtual void acceptError(exception_wrapper ew) noexcept {
+      auto ex = ew.get_exception<std::exception>();
+      FOLLY_SAFE_CHECK(ex, "no exception");
+      acceptError(*ex);
+    }
+
+    virtual void acceptError(const std::exception& /* unused */) noexcept {}
+    FOLLY_POP_WARNING
 
     /**
      * acceptStarted() will be called in the callback's EventBase thread
@@ -816,15 +824,13 @@ class AsyncServerSocket : public DelayedDestruction, public AsyncSocketBase {
 
   class BackoffTimeout;
 
-  virtual void
-  handlerReady(uint16_t events, NetworkSocket fd, sa_family_t family) noexcept;
+  virtual void handlerReady(
+      uint16_t events, NetworkSocket fd, sa_family_t family) noexcept;
 
   NetworkSocket createSocket(int family);
   void setupSocket(NetworkSocket fd, int family);
   void bindSocket(
-      NetworkSocket fd,
-      const SocketAddress& address,
-      bool isExistingSocket);
+      NetworkSocket fd, const SocketAddress& address, bool isExistingSocket);
   void dispatchSocket(NetworkSocket socket, SocketAddress&& address);
   void dispatchError(const char* msg, int errnoValue);
   void enterBackoff();

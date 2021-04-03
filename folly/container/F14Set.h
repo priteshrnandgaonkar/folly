@@ -31,6 +31,7 @@
 #include <initializer_list>
 #include <tuple>
 
+#include <folly/container/View.h>
 #include <folly/lang/SafeAssert.h>
 
 #include <folly/container/F14Set-fwd.h>
@@ -259,8 +260,8 @@ class F14BasicSet {
 
  private:
   template <class InputIt>
-  FOLLY_ALWAYS_INLINE void
-  bulkInsert(InputIt first, InputIt last, bool autoReserve) {
+  FOLLY_ALWAYS_INLINE void bulkInsert(
+      InputIt first, InputIt last, bool autoReserve) {
     if (autoReserve) {
       auto n = std::distance(first, last);
       if (n == 0) {
@@ -383,8 +384,7 @@ class F14BasicSet {
 
   template <typename K, typename BeforeDestroy>
   EnableHeterogeneousErase<K, size_type> eraseInto(
-      K const& key,
-      BeforeDestroy&& beforeDestroy) {
+      K const& key, BeforeDestroy&& beforeDestroy) {
     return table_.eraseKeyInto(key, beforeDestroy);
   }
 
@@ -454,15 +454,13 @@ class F14BasicSet {
 
   template <typename K>
   FOLLY_ALWAYS_INLINE EnableHeterogeneousFind<K, iterator> find(
-      F14HashToken const& token,
-      K const& key) {
+      F14HashToken const& token, K const& key) {
     return const_cast<F14BasicSet const*>(this)->find(token, key);
   }
 
   template <typename K>
   FOLLY_ALWAYS_INLINE EnableHeterogeneousFind<K, const_iterator> find(
-      F14HashToken const& token,
-      K const& key) const {
+      F14HashToken const& token, K const& key) const {
     return table_.makeIter(table_.find(token, key));
   }
 
@@ -477,15 +475,13 @@ class F14BasicSet {
   }
 
   FOLLY_ALWAYS_INLINE bool contains(
-      F14HashToken const& token,
-      key_type const& key) const {
+      F14HashToken const& token, key_type const& key) const {
     return !table_.find(token, key).atEnd();
   }
 
   template <typename K>
   FOLLY_ALWAYS_INLINE EnableHeterogeneousFind<K, bool> contains(
-      F14HashToken const& token,
-      K const& key) const {
+      F14HashToken const& token, K const& key) const {
     return !table_.find(token, key).atEnd();
   }
 
@@ -755,8 +751,7 @@ class F14VectorSetImpl : public F14BasicSet<SetPolicyWithDefaults<
  private:
   template <typename BeforeDestroy>
   void eraseUnderlying(
-      typename Policy::ItemIter underlying,
-      BeforeDestroy&& beforeDestroy) {
+      typename Policy::ItemIter underlying, BeforeDestroy&& beforeDestroy) {
     Alloc& a = this->table_.alloc();
     auto values = this->table_.values_;
 
@@ -833,8 +828,7 @@ class F14VectorSetImpl : public F14BasicSet<SetPolicyWithDefaults<
 
   template <typename K, typename BeforeDestroy>
   EnableHeterogeneousVectorErase<K, std::size_t> eraseInto(
-      K const& key,
-      BeforeDestroy&& beforeDestroy) {
+      K const& key, BeforeDestroy&& beforeDestroy) {
     return eraseUnderlyingKey(key, beforeDestroy);
   }
 
@@ -923,13 +917,12 @@ class F14VectorSet
   const_reverse_iterator riter(const_iterator it) const {
     return this->table_.riter(it);
   }
-};
 
-template <typename K, typename H, typename E, typename A>
-Range<typename F14VectorSet<K, H, E, A>::const_reverse_iterator>
-order_preserving_reinsertion_view(const F14VectorSet<K, H, E, A>& c) {
-  return {c.rbegin(), c.rend()};
-}
+  friend Range<const_reverse_iterator> tag_invoke(
+      order_preserving_reinsertion_view_fn, F14VectorSet const& c) noexcept {
+    return {c.rbegin(), c.rend()};
+  }
+};
 
 template <typename Key, typename Hasher, typename KeyEqual, typename Alloc>
 class F14FastSet
@@ -987,57 +980,49 @@ bool setsEqual(S const& lhs, S const& rhs) {
 
 template <typename K, typename H, typename E, typename A>
 bool operator==(
-    F14ValueSet<K, H, E, A> const& lhs,
-    F14ValueSet<K, H, E, A> const& rhs) {
+    F14ValueSet<K, H, E, A> const& lhs, F14ValueSet<K, H, E, A> const& rhs) {
   return setsEqual(lhs, rhs);
 }
 
 template <typename K, typename H, typename E, typename A>
 bool operator!=(
-    F14ValueSet<K, H, E, A> const& lhs,
-    F14ValueSet<K, H, E, A> const& rhs) {
+    F14ValueSet<K, H, E, A> const& lhs, F14ValueSet<K, H, E, A> const& rhs) {
   return !(lhs == rhs);
 }
 
 template <typename K, typename H, typename E, typename A>
 bool operator==(
-    F14NodeSet<K, H, E, A> const& lhs,
-    F14NodeSet<K, H, E, A> const& rhs) {
+    F14NodeSet<K, H, E, A> const& lhs, F14NodeSet<K, H, E, A> const& rhs) {
   return setsEqual(lhs, rhs);
 }
 
 template <typename K, typename H, typename E, typename A>
 bool operator!=(
-    F14NodeSet<K, H, E, A> const& lhs,
-    F14NodeSet<K, H, E, A> const& rhs) {
+    F14NodeSet<K, H, E, A> const& lhs, F14NodeSet<K, H, E, A> const& rhs) {
   return !(lhs == rhs);
 }
 
 template <typename K, typename H, typename E, typename A>
 bool operator==(
-    F14VectorSet<K, H, E, A> const& lhs,
-    F14VectorSet<K, H, E, A> const& rhs) {
+    F14VectorSet<K, H, E, A> const& lhs, F14VectorSet<K, H, E, A> const& rhs) {
   return setsEqual(lhs, rhs);
 }
 
 template <typename K, typename H, typename E, typename A>
 bool operator!=(
-    F14VectorSet<K, H, E, A> const& lhs,
-    F14VectorSet<K, H, E, A> const& rhs) {
+    F14VectorSet<K, H, E, A> const& lhs, F14VectorSet<K, H, E, A> const& rhs) {
   return !(lhs == rhs);
 }
 
 template <typename K, typename H, typename E, typename A>
 bool operator==(
-    F14FastSet<K, H, E, A> const& lhs,
-    F14FastSet<K, H, E, A> const& rhs) {
+    F14FastSet<K, H, E, A> const& lhs, F14FastSet<K, H, E, A> const& rhs) {
   return setsEqual(lhs, rhs);
 }
 
 template <typename K, typename H, typename E, typename A>
 bool operator!=(
-    F14FastSet<K, H, E, A> const& lhs,
-    F14FastSet<K, H, E, A> const& rhs) {
+    F14FastSet<K, H, E, A> const& lhs, F14FastSet<K, H, E, A> const& rhs) {
   return !(lhs == rhs);
 }
 
